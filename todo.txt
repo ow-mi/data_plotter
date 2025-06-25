@@ -1,0 +1,18 @@
+
+- input data tab 
+    - upload files with an option for file overwrite
+    - add option for remove file options
+    - this list is then filtered in the importer tabs
+    - remove the data upload in the importer tbs
+
+- set x axis (default to timestamp, but have other names as possible)
+    - in the importer add the x axis as a selection
+        - either use timestamp, with timestamp format options (as is currently the case)
+
+- in plotter ability to upload file directly
+    - setting to use the combiner data or the uploaded data
+
+- extra best fit lines + hline + vline
+    - in the plotter add inputs for 2 hline and 2 vline options
+
+- Potentially extra plotter tab template settings
