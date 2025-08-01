@@ -43,9 +43,9 @@ library(htmlwidgets)
 library(spsComps)
 library(base64enc)
 
-# Source helper functions and default R code strings
+# Source helper functions and code templates
 source("./functions.R")
-source("./r_code_.R")
+source("./code_template/load_templates.R")
 
 # Source all module files
 source("./modules/module_data_table_ui.R")
