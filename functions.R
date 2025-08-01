@@ -165,7 +165,7 @@ if (!file.exists("www/r_functions_autocomplete.json")) {
 }
 
 
-aceEditor_pre <- function(inputId, value, mode = "r", theme = "gruvbox", minLines = 6, maxLines = 25, fontSize = 13) {
+aceEditor_pre <- function(inputId, value, mode = "r", theme = "gruvbox", minLines = 6, maxLines = 50, fontSize = 13, height = "auto") {
   aceEditor(
     inputId,
     value = value,
@@ -174,7 +174,7 @@ aceEditor_pre <- function(inputId, value, mode = "r", theme = "gruvbox", minLine
     minLines = minLines,
     maxLines = maxLines,
     fontSize = fontSize,
-    height = "250px",  # Reduced height for better performance
+    height = if(height == "auto") "calc(100vh - 300px)" else height,  # Dynamic height for sidebars
     autoScrollEditorIntoView = FALSE,  # Disable auto-scroll for performance
     wordWrap = TRUE,
     showPrintMargin = FALSE,

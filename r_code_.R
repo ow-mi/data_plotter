@@ -232,30 +232,32 @@ if ('source_importer_id' %in% names(df)) {
 }
 
 # Time-based filtering using separate start/end date and time inputs
-if ('timestamp' %in% names(df)) {
-    # Build start datetime
-    if (!is.null(input$filter_time_start_date) && !is.null(input$filter_time_start_time)) {
-        start_datetime <- as.POSIXct(paste(
-            as.character(input$filter_time_start_date), 
-            format(input$filter_time_start_time, '%H:%M:%S')
-        ))
+if (input$filter_time_enabled) {
+  if ('timestamp' %in% names(df)) {
+      # Build start datetime
+      if (!is.null(input$filter_time_start_date) && !is.null(input$filter_time_start_time)) {
+          start_datetime <- as.POSIXct(paste(
+              as.character(input$filter_time_start_date), 
+              format(input$filter_time_start_time, '%H:%M:%S')
+          ))
         
-        if (!is.na(start_datetime)) {
-            df <- df[timestamp >= start_datetime]
-        }
-    }
+          if (!is.na(start_datetime)) {
+              df <- df[timestamp >= start_datetime]
+          }
+      }
     
-    # Build end datetime
-    if (!is.null(input$filter_time_end_date) && !is.null(input$filter_time_end_time)) {
-        end_datetime <- as.POSIXct(paste(
-            as.character(input$filter_time_end_date), 
-            format(input$filter_time_end_time, '%H:%M:%S')
-        ))
+      # Build end datetime
+      if (!is.null(input$filter_time_end_date) && !is.null(input$filter_time_end_time)) {
+          end_datetime <- as.POSIXct(paste(
+              as.character(input$filter_time_end_date), 
+              format(input$filter_time_end_time, '%H:%M:%S')
+          ))
         
-        if (!is.na(end_datetime)) {
-            df <- df[timestamp <= end_datetime]
-        }
-    }
+          if (!is.na(end_datetime)) {
+              df <- df[timestamp <= end_datetime]
+          }
+      }
+  }
 }
 
 # Extract 'dut' if not already present or if needed differently for this plot
@@ -287,10 +289,16 @@ list(
 )
 "
 
-# Static Plot Template (ggplot2)
-ggplot_static_template <- "# Static plot code (ggplot2)
+# Modular Static Plot Templates (ggplot2) - Broken down for better usability
+
+# 1. Data Processing Template
+ggplot_data_processing_template <- "# Data Processing for Static Plot
 # Available: df (processed data), input (UI inputs)
-# Return: ggplot object
+# Purpose: Handle X-axis transformations and basic data setup
+
+library(ggplot2)
+library(stringr)
+library(RColorBrewer)
 
 # Handle X-axis transformation
 plot_df <- copy(df) # Work on a copy to avoid modifying original data
@@ -329,6 +337,14 @@ if ('timestamp' %in% names(plot_df)) {
   }
 }
 
+plot_df # Return processed data
+"
+
+# 2. Base Plot Setup Template
+ggplot_base_setup_template <- "# Base Plot Setup 
+# Available: plot_df (processed data), input (UI inputs), x_label
+# Purpose: Create base plot with aesthetics and geometry
+
 # Build aesthetic mapping
 aes_mapping <- aes(x = x_axis, y = value)
 
@@ -342,21 +358,100 @@ if (!is.null(input$plot_linetype) && input$plot_linetype != 'null' && input$plot
   aes_mapping$linetype <- as.name(input$plot_linetype)
 }
 
+# Get size and alpha values
+line_width <- if(!is.null(input$line_width)) input$line_width else 1
+point_size <- if(!is.null(input$point_size)) input$point_size else 2
+alpha_val <- if(!is.null(input$alpha)) input$alpha else 1.0
+
 # Create plot with combined aesthetics
 p <- ggplot(plot_df, aes_mapping)
 
-# Choose geometry based on fast rendering option
-if (!is.null(input$plot_vector) && input$plot_vector == TRUE) {
-  p <- p + geom_scattermore(pointsize = 2)
+# Choose geometry based on geom_type input
+geom_type <- if(!is.null(input$geom_type)) input$geom_type else 'geom_line'
+
+if (geom_type == 'geom_line') {
+  p <- p + geom_line(linewidth = line_width, alpha = alpha_val)
+} else if (geom_type == 'geom_point') {
+  p <- p + geom_point(size = point_size, alpha = alpha_val)
+} else if (geom_type == 'geom_line_point') {
+  p <- p + geom_line(linewidth = line_width, alpha = alpha_val) + 
+           geom_point(size = point_size, alpha = alpha_val)
+} else if (geom_type == 'geom_area') {
+  p <- p + geom_area(alpha = alpha_val * 0.7)
+} else if (geom_type == 'geom_smooth') {
+  p <- p + geom_smooth(method = 'loess', se = TRUE, alpha = alpha_val * 0.3, linewidth = line_width)
+} else if (geom_type == 'geom_col') {
+  p <- p + geom_col(alpha = alpha_val)
 } else {
-  p <- p + geom_line()
+  # Default fallback
+  p <- p + geom_line(linewidth = line_width, alpha = alpha_val)
 }
 
-# Add labels and title with proper legend names
+p # Return base plot
+"
+
+# 3. Themes & Styling Template
+ggplot_themes_styling_template <- "# Themes & Styling
+# Available: p (base plot), plot_df, input (UI inputs), x_label
+# Purpose: Apply themes, colors, fonts, and legend settings
+
+# Apply theme
+theme_choice <- if(!is.null(input$plot_theme)) input$plot_theme else 'theme_classic'
+if (theme_choice == 'theme_classic') {
+  p <- p + theme_classic()
+} else if (theme_choice == 'theme_minimal') {
+  p <- p + theme_minimal()
+} else if (theme_choice == 'theme_dark') {
+  p <- p + theme_dark()
+} else if (theme_choice == 'theme_light') {
+  p <- p + theme_light()
+} else if (theme_choice == 'theme_bw') {
+  p <- p + theme_bw()
+} else if (theme_choice == 'theme_void') {
+  p <- p + theme_void()
+} else {
+  p <- p + theme_classic()
+}
+
+# Apply color palette
+if (!is.null(input$plot_color) && input$plot_color != 'null' && input$plot_color %in% names(plot_df)) {
+  color_palette <- if(!is.null(input$color_palette)) input$color_palette else 'default'
+  
+  if (color_palette == 'viridis') {
+    p <- p + scale_color_viridis_d()
+  } else if (color_palette %in% c('Set1', 'Set2', 'Dark2', 'Paired')) {
+    p <- p + scale_color_brewer(type = 'qual', palette = color_palette)
+  }
+  # Default palette is handled automatically by ggplot
+}
+
+# Get font sizes
+title_size <- if(!is.null(input$title_font_size)) input$title_font_size else 14
+xaxis_size <- if(!is.null(input$xaxis_font_size)) input$xaxis_font_size else 12
+yaxis_size <- if(!is.null(input$yaxis_font_size)) input$yaxis_font_size else 12
+legend_size <- if(!is.null(input$legend_font_size)) input$legend_font_size else 12
+
+# Apply legend settings
+legend_pos <- if(!is.null(input$legend_position)) input$legend_position else 'right'
+
+# Customize theme with all settings
+p <- p + theme(
+  plot.title = element_text(hjust = 0.5, size = title_size),
+  axis.title.x = element_text(size = xaxis_size),
+  axis.title.y = element_text(size = yaxis_size),
+  axis.text.x = element_text(size = xaxis_size * 0.9),
+  axis.text.y = element_text(size = yaxis_size * 0.9),
+  legend.position = legend_pos,
+  legend.text = element_text(size = legend_size),
+  legend.title = element_text(size = legend_size)
+)
+
+# Add labels and title
 plot_labs <- labs(
   title = if(!is.null(input$plot_title) && nzchar(input$plot_title)) input$plot_title else 'Plot Title',
   x = x_label,
-  y = if(!is.null(input$plot_ylabel)) input$plot_ylabel else 'Y Axis'
+  y = if(!is.null(input$plot_ylabel)) input$plot_ylabel else 'Y Axis',
+  caption = if(!is.null(input$plot_caption) && nzchar(input$plot_caption)) input$plot_caption else NULL
 )
 
 # Add proper legend labels
@@ -369,49 +464,732 @@ if (!is.null(input$plot_linetype) && input$plot_linetype != 'null' && input$plot
 
 p <- p + plot_labs
 
-# Apply theme with font sizes
-title_size <- if(!is.null(input$title_font_size)) input$title_font_size else 14
-xaxis_size <- if(!is.null(input$xaxis_font_size)) input$xaxis_font_size else 12
-yaxis_size <- if(!is.null(input$yaxis_font_size)) input$yaxis_font_size else 12
+p # Return styled plot
+"
 
-p <- p + theme_bw() + 
-  theme(
-    plot.title = element_text(hjust = 0.5, size = title_size),
-    axis.title.x = element_text(size = xaxis_size),
-    axis.title.y = element_text(size = yaxis_size),
-    axis.text.x = element_text(size = xaxis_size * 0.9),
-    axis.text.y = element_text(size = yaxis_size * 0.9)
-  )
+# 4. Statistical Overlays Template
+ggplot_statistical_overlays_template <- "# Statistical Overlays & Lines
+# Available: p (styled plot), plot_df, input (UI inputs)
+# Purpose: Add trend lines, mean/median lines, reference lines
 
-# Add best fit line if specified
+# Collect line legend information for the new linetype-based approach
+line_legend_names <- c()
+line_legend_colors <- c()
+line_legend_linetypes <- c()
+
+# Add statistical overlays with enhanced controls
 if (!is.null(input$add_smooth) && input$add_smooth == TRUE) {
-  p <- p + geom_smooth(method = 'loess', se = TRUE, alpha = 0.3)
+  smooth_method <- if(!is.null(input$smooth_method)) input$smooth_method else 'loess'
+  smooth_linetype <- if(!is.null(input$smooth_linetype)) input$smooth_linetype else 'solid'
+  smooth_linewidth <- if(!is.null(input$smooth_linewidth)) input$smooth_linewidth else 1
+  smooth_color <- if(!is.null(input$smooth_color)) input$smooth_color else 'red'
+  smooth_legend <- if(!is.null(input$smooth_legend)) input$smooth_legend else TRUE
+  smooth_name <- if(!is.null(input$smooth_name) && nzchar(input$smooth_name)) input$smooth_name else 'Trend'
+  
+  if (smooth_legend) {
+    # Try to extract equation from smooth fit for legend name
+    tryCatch({
+      if (smooth_method == 'lm') {
+        # For linear model, extract coefficients
+        temp_model <- lm(value ~ x_axis, data = plot_df)
+        coef_vals <- coef(temp_model)
+        if (length(coef_vals) >= 2) {
+          equation <- paste0('y = ', round(coef_vals[2], 3), 'x + ', round(coef_vals[1], 3))
+          smooth_name_with_eq <- paste0(smooth_name, ' (', equation, ')')
+        } else {
+          smooth_name_with_eq <- smooth_name
+        }
+      } else {
+        # For other methods, just use the method name
+        smooth_name_with_eq <- paste0(smooth_name, ' (', smooth_method, ')')
+      }
+    }, error = function(e) {
+      smooth_name_with_eq <- smooth_name
+    })
+    
+    line_legend_names <- c(line_legend_names, smooth_name_with_eq)
+    line_legend_colors <- c(line_legend_colors, smooth_color)
+    line_legend_linetypes <- c(line_legend_linetypes, smooth_linetype)
+    
+    # Add trend line with linetype mapping for legend
+    p <- p + geom_smooth(
+      aes(linetype = smooth_name_with_eq),
+      method = smooth_method, 
+      se = TRUE, 
+      alpha = 0.3, 
+      linewidth = smooth_linewidth,
+      color = smooth_color,
+      show.legend = TRUE
+    )
+  } else {
+    # Add trend line with no legend
+    p <- p + geom_smooth(
+      method = smooth_method, 
+      se = TRUE, 
+      alpha = 0.3, 
+      linetype = smooth_linetype,
+      linewidth = smooth_linewidth,
+      color = smooth_color,
+      show.legend = FALSE
+    )
+  }
 }
 
-# Add horizontal reference lines
-if (!is.null(input$hline_1) && !is.na(input$hline_1)) {
-  p <- p + geom_hline(yintercept = input$hline_1, linetype = 'dashed', color = 'red', alpha = 0.7)
-}
-if (!is.null(input$hline_2) && !is.na(input$hline_2)) {
-  p <- p + geom_hline(yintercept = input$hline_2, linetype = 'dashed', color = 'blue', alpha = 0.7)
+# Mean and Median Lines - REMOVED
+
+# Enhanced reference lines with full control
+if (!is.null(input$enable_hline_1) && input$enable_hline_1 == TRUE && !is.null(input$hline_1)) {
+  hline_1_linetype <- if(!is.null(input$hline_1_linetype)) input$hline_1_linetype else 'dashed'
+  hline_1_linewidth <- if(!is.null(input$hline_1_linewidth)) input$hline_1_linewidth else 1
+  hline_1_color <- if(!is.null(input$hline_1_color)) input$hline_1_color else 'red'
+  hline_1_legend <- if(!is.null(input$hline_1_legend)) input$hline_1_legend else FALSE
+  hline_1_name <- if(!is.null(input$hline_1_name) && nzchar(input$hline_1_name)) input$hline_1_name else 'H-Line 1'
+  
+  if (hline_1_legend) {
+    line_legend_names <- c(line_legend_names, hline_1_name)
+    line_legend_colors <- c(line_legend_colors, hline_1_color)
+    line_legend_linetypes <- c(line_legend_linetypes, hline_1_linetype)
+    
+    # Add line with linetype mapping for legend
+    p <- p + geom_hline(
+      aes(yintercept = input$hline_1, linetype = hline_1_name),
+      linewidth = hline_1_linewidth,
+      color = hline_1_color,
+      alpha = 0.7
+    )
+  } else {
+    # Add line with no legend
+    p <- p + geom_hline(
+      yintercept = input$hline_1,
+      linetype = hline_1_linetype,
+      linewidth = hline_1_linewidth,
+      color = hline_1_color,
+      alpha = 0.7
+    )
+  }
 }
 
-# Add vertical reference lines
-if (!is.null(input$vline_1) && !is.na(input$vline_1)) {
-  p <- p + geom_vline(xintercept = input$vline_1, linetype = 'dashed', color = 'red', alpha = 0.7)
+if (!is.null(input$enable_hline_2) && input$enable_hline_2 == TRUE && !is.null(input$hline_2)) {
+  hline_2_linetype <- if(!is.null(input$hline_2_linetype)) input$hline_2_linetype else 'dashed'
+  hline_2_linewidth <- if(!is.null(input$hline_2_linewidth)) input$hline_2_linewidth else 1
+  hline_2_color <- if(!is.null(input$hline_2_color)) input$hline_2_color else 'blue'
+  hline_2_legend <- if(!is.null(input$hline_2_legend)) input$hline_2_legend else FALSE
+  hline_2_name <- if(!is.null(input$hline_2_name) && nzchar(input$hline_2_name)) input$hline_2_name else 'H-Line 2'
+  
+  if (hline_2_legend) {
+    line_legend_names <- c(line_legend_names, hline_2_name)
+    line_legend_colors <- c(line_legend_colors, hline_2_color)
+    line_legend_linetypes <- c(line_legend_linetypes, hline_2_linetype)
+    
+    # Add line with linetype mapping for legend
+    p <- p + geom_hline(
+      aes(yintercept = input$hline_2, linetype = hline_2_name),
+      linewidth = hline_2_linewidth,
+      color = hline_2_color,
+      alpha = 0.7
+    )
+  } else {
+    # Add line with no legend
+    p <- p + geom_hline(
+      yintercept = input$hline_2,
+      linetype = hline_2_linetype,
+      linewidth = hline_2_linewidth,
+      color = hline_2_color,
+      alpha = 0.7
+    )
+  }
 }
-if (!is.null(input$vline_2) && !is.na(input$vline_2)) {
-  p <- p + geom_vline(xintercept = input$vline_2, linetype = 'dashed', color = 'blue', alpha = 0.7)
+
+if (!is.null(input$enable_hline_3) && input$enable_hline_3 == TRUE && !is.null(input$hline_3)) {
+  hline_3_linetype <- if(!is.null(input$hline_3_linetype)) input$hline_3_linetype else 'dashed'
+  hline_3_linewidth <- if(!is.null(input$hline_3_linewidth)) input$hline_3_linewidth else 1
+  hline_3_color <- if(!is.null(input$hline_3_color)) input$hline_3_color else 'purple'
+  hline_3_legend <- if(!is.null(input$hline_3_legend)) input$hline_3_legend else FALSE
+  hline_3_name <- if(!is.null(input$hline_3_name) && nzchar(input$hline_3_name)) input$hline_3_name else 'H-Line 3'
+  
+  if (hline_3_legend) {
+    line_legend_names <- c(line_legend_names, hline_3_name)
+    line_legend_colors <- c(line_legend_colors, hline_3_color)
+    line_legend_linetypes <- c(line_legend_linetypes, hline_3_linetype)
+    
+    # Add line with linetype mapping for legend
+    p <- p + geom_hline(
+      aes(yintercept = input$hline_3, linetype = hline_3_name),
+      linewidth = hline_3_linewidth,
+      color = hline_3_color,
+      alpha = 0.7
+    )
+  } else {
+    # Add line with no legend
+    p <- p + geom_hline(
+      yintercept = input$hline_3,
+      linetype = hline_3_linetype,
+      linewidth = hline_3_linewidth,
+      color = hline_3_color,
+      alpha = 0.7
+    )
+  }
 }
+
+if (!is.null(input$enable_hline_4) && input$enable_hline_4 == TRUE && !is.null(input$hline_4)) {
+  hline_4_linetype <- if(!is.null(input$hline_4_linetype)) input$hline_4_linetype else 'dashed'
+  hline_4_linewidth <- if(!is.null(input$hline_4_linewidth)) input$hline_4_linewidth else 1
+  hline_4_color <- if(!is.null(input$hline_4_color)) input$hline_4_color else 'orange'
+  hline_4_legend <- if(!is.null(input$hline_4_legend)) input$hline_4_legend else FALSE
+  hline_4_name <- if(!is.null(input$hline_4_name) && nzchar(input$hline_4_name)) input$hline_4_name else 'H-Line 4'
+  
+  if (hline_4_legend) {
+    line_legend_names <- c(line_legend_names, hline_4_name)
+    line_legend_colors <- c(line_legend_colors, hline_4_color)
+    line_legend_linetypes <- c(line_legend_linetypes, hline_4_linetype)
+    
+    # Add line with linetype mapping for legend
+    p <- p + geom_hline(
+      aes(yintercept = input$hline_4, linetype = hline_4_name),
+      linewidth = hline_4_linewidth,
+      color = hline_4_color,
+      alpha = 0.7
+    )
+  } else {
+    # Add line with no legend
+    p <- p + geom_hline(
+      yintercept = input$hline_4,
+      linetype = hline_4_linetype,
+      linewidth = hline_4_linewidth,
+      color = hline_4_color,
+      alpha = 0.7
+    )
+  }
+}
+
+# Enhanced vertical reference lines
+if (!is.null(input$enable_vline_1) && input$enable_vline_1 == TRUE && !is.null(input$vline_1)) {
+  vline_1_linetype <- if(!is.null(input$vline_1_linetype)) input$vline_1_linetype else 'dashed'
+  vline_1_linewidth <- if(!is.null(input$vline_1_linewidth)) input$vline_1_linewidth else 1
+  vline_1_color <- if(!is.null(input$vline_1_color)) input$vline_1_color else 'red'
+  vline_1_legend <- if(!is.null(input$vline_1_legend)) input$vline_1_legend else FALSE
+  vline_1_name <- if(!is.null(input$vline_1_name) && nzchar(input$vline_1_name)) input$vline_1_name else 'V-Line 1'
+  
+  if (vline_1_legend) {
+    line_legend_names <- c(line_legend_names, vline_1_name)
+    line_legend_colors <- c(line_legend_colors, vline_1_color)
+    line_legend_linetypes <- c(line_legend_linetypes, vline_1_linetype)
+    
+    # Add line with linetype mapping for legend
+    p <- p + geom_vline(
+      aes(xintercept = input$vline_1, linetype = vline_1_name),
+      linewidth = vline_1_linewidth,
+      color = vline_1_color,
+      alpha = 0.7
+    )
+  } else {
+    # Add line with no legend
+    p <- p + geom_vline(
+      xintercept = input$vline_1,
+      linetype = vline_1_linetype,
+      linewidth = vline_1_linewidth,
+      color = vline_1_color,
+      alpha = 0.7
+    )
+  }
+}
+
+if (!is.null(input$enable_vline_2) && input$enable_vline_2 == TRUE && !is.null(input$vline_2)) {
+  vline_2_linetype <- if(!is.null(input$vline_2_linetype)) input$vline_2_linetype else 'dashed'
+  vline_2_linewidth <- if(!is.null(input$vline_2_linewidth)) input$vline_2_linewidth else 1
+  vline_2_color <- if(!is.null(input$vline_2_color)) input$vline_2_color else 'blue'
+  vline_2_legend <- if(!is.null(input$vline_2_legend)) input$vline_2_legend else FALSE
+  vline_2_name <- if(!is.null(input$vline_2_name) && nzchar(input$vline_2_name)) input$vline_2_name else 'V-Line 2'
+  
+  if (vline_2_legend) {
+    line_legend_names <- c(line_legend_names, vline_2_name)
+    line_legend_colors <- c(line_legend_colors, vline_2_color)
+    line_legend_linetypes <- c(line_legend_linetypes, vline_2_linetype)
+    
+    # Add line with linetype mapping for legend
+    p <- p + geom_vline(
+      aes(xintercept = input$vline_2, linetype = vline_2_name),
+      linewidth = vline_2_linewidth,
+      color = vline_2_color,
+      alpha = 0.7
+    )
+  } else {
+    # Add line with no legend
+    p <- p + geom_vline(
+      xintercept = input$vline_2,
+      linetype = vline_2_linetype,
+      linewidth = vline_2_linewidth,
+      color = vline_2_color,
+      alpha = 0.7
+    )
+  }
+}
+
+if (!is.null(input$enable_vline_3) && input$enable_vline_3 == TRUE && !is.null(input$vline_3)) {
+  vline_3_linetype <- if(!is.null(input$vline_3_linetype)) input$vline_3_linetype else 'dashed'
+  vline_3_linewidth <- if(!is.null(input$vline_3_linewidth)) input$vline_3_linewidth else 1
+  vline_3_color <- if(!is.null(input$vline_3_color)) input$vline_3_color else 'purple'
+  vline_3_legend <- if(!is.null(input$vline_3_legend)) input$vline_3_legend else FALSE
+  vline_3_name <- if(!is.null(input$vline_3_name) && nzchar(input$vline_3_name)) input$vline_3_name else 'V-Line 3'
+  
+  if (vline_3_legend) {
+    line_legend_names <- c(line_legend_names, vline_3_name)
+    line_legend_colors <- c(line_legend_colors, vline_3_color)
+    line_legend_linetypes <- c(line_legend_linetypes, vline_3_linetype)
+    
+    # Add line with linetype mapping for legend
+    p <- p + geom_vline(
+      aes(xintercept = input$vline_3, linetype = vline_3_name),
+      linewidth = vline_3_linewidth,
+      color = vline_3_color,
+      alpha = 0.7
+    )
+  } else {
+    # Add line with no legend
+    p <- p + geom_vline(
+      xintercept = input$vline_3,
+      linetype = vline_3_linetype,
+      linewidth = vline_3_linewidth,
+      color = vline_3_color,
+      alpha = 0.7
+    )
+  }
+}
+
+if (!is.null(input$enable_vline_4) && input$enable_vline_4 == TRUE && !is.null(input$vline_4)) {
+  vline_4_linetype <- if(!is.null(input$vline_4_linetype)) input$vline_4_linetype else 'dashed'
+  vline_4_linewidth <- if(!is.null(input$vline_4_linewidth)) input$vline_4_linewidth else 1
+  vline_4_color <- if(!is.null(input$vline_4_color)) input$vline_4_color else 'orange'
+  vline_4_legend <- if(!is.null(input$vline_4_legend)) input$vline_4_legend else FALSE
+  vline_4_name <- if(!is.null(input$vline_4_name) && nzchar(input$vline_4_name)) input$vline_4_name else 'V-Line 4'
+  
+  if (vline_4_legend) {
+    line_legend_names <- c(line_legend_names, vline_4_name)
+    line_legend_colors <- c(line_legend_colors, vline_4_color)
+    line_legend_linetypes <- c(line_legend_linetypes, vline_4_linetype)
+    
+    # Add line with linetype mapping for legend
+    p <- p + geom_vline(
+      aes(xintercept = input$vline_4, linetype = vline_4_name),
+      linewidth = vline_4_linewidth,
+      color = vline_4_color,
+      alpha = 0.7
+    )
+  } else {
+    # Add line with no legend
+    p <- p + geom_vline(
+      xintercept = input$vline_4,
+      linetype = vline_4_linetype,
+      linewidth = vline_4_linewidth,
+      color = vline_4_color,
+      alpha = 0.7
+    )
+  }
+}
+
+# Apply the new linetype-based legend system that preserves main plot legend
+if (length(line_legend_names) > 0) {
+  # Create named vectors for the scale
+  legend_linetype_values <- setNames(line_legend_linetypes, line_legend_names)
+  
+  # Add the linetype scale with color override for the legend
+  p <- p + scale_linetype_manual(
+    name = 'Lines', 
+    values = legend_linetype_values,
+    guide = guide_legend(
+      override.aes = list(color = line_legend_colors),
+      order = 2  # Place lines legend after main legend
+    )
+  )
+}
+
+p # Return plot with overlays
+"
+
+# 5. Grid & Axes Template  
+ggplot_grid_axes_template <- "# Grid & Axes Controls
+# Available: p (plot with overlays), plot_df, input (UI inputs)
+# Purpose: Apply grid controls, axis transformations, and limits
+
+# transformations
+x_trans <- if(!is.null(input$x_trans)) input$x_trans else 'identity'
+y_trans <- if(!is.null(input$y_trans)) input$y_trans else 'identity'
+
+# major grid spacing
+maj_x_by  <- if(!is.null(input$major_vgrid_breaks)) input$major_vgrid_breaks else 10
+maj_y_by  <- if(!is.null(input$major_hgrid_breaks)) input$major_hgrid_breaks else 5
+
+# number of minor intervals BETWEEN each pair of majors
+nmin_x    <- if(!is.null(input$minor_vgrid_breaks)) input$minor_vgrid_breaks else 3
+nmin_y    <- if(!is.null(input$minor_hgrid_breaks)) input$minor_hgrid_breaks else 3
+
+# major grid line styles
+maj_x_col <- if(!is.null(input$major_vgrid_color)) input$major_vgrid_color else 'grey80'
+maj_y_col <- if(!is.null(input$major_hgrid_color)) input$major_hgrid_color else 'grey80'
+maj_x_lw  <- if(!is.null(input$major_vgrid_linewidth)) input$major_vgrid_linewidth else 0.5
+maj_y_lw  <- if(!is.null(input$major_hgrid_linewidth)) input$major_hgrid_linewidth else 0.5
+maj_x_lt  <- if(!is.null(input$major_vgrid_linetype)) input$major_vgrid_linetype else 'solid'
+maj_y_lt  <- if(!is.null(input$major_hgrid_linetype)) input$major_hgrid_linetype else 'solid'
+
+# minor grid line styles
+min_x_col <- if(!is.null(input$minor_vgrid_color)) input$minor_vgrid_color else 'grey95'
+min_y_col <- if(!is.null(input$minor_hgrid_color)) input$minor_hgrid_color else 'grey95'
+min_x_lw  <- if(!is.null(input$minor_vgrid_linewidth)) input$minor_vgrid_linewidth else 0.25
+min_y_lw  <- if(!is.null(input$minor_hgrid_linewidth)) input$minor_hgrid_linewidth else 0.25
+min_x_lt  <- if(!is.null(input$minor_vgrid_linetype)) input$minor_vgrid_linetype else 'dashed'
+min_y_lt  <- if(!is.null(input$minor_hgrid_linetype)) input$minor_hgrid_linetype else 'dashed'
+
+# grid enable flags
+enable_maj_x <- !is.null(input$enable_major_vgrid) && input$enable_major_vgrid == TRUE
+enable_maj_y <- !is.null(input$enable_major_hgrid) && input$enable_major_hgrid == TRUE
+enable_min_x <- !is.null(input$enable_minor_vgrid) && input$enable_minor_vgrid == TRUE
+enable_min_y <- !is.null(input$enable_minor_hgrid) && input$enable_minor_hgrid == TRUE
+
+# axis hard limits
+y_start_enabled <- !is.null(input$enable_y_start) && input$enable_y_start == TRUE
+y_end_enabled <- !is.null(input$enable_y_end) && input$enable_y_end == TRUE
+
+if (y_start_enabled || y_end_enabled) {
+  y_data_range <- range(plot_df$value, na.rm = TRUE)
+  y_start <- if(y_start_enabled && !is.null(input$y_start)) input$y_start else y_data_range[1]
+  y_end <- if(y_end_enabled && !is.null(input$y_end)) input$y_end else y_data_range[2]
+  ylim_values <- c(y_start, y_end)
+} else {
+  ylim_values <- NULL
+}
+
+# X axis limits (support both numeric and timestamp)
+x_limit_type <- if(!is.null(input$x_limit_type)) input$x_limit_type else 'numeric'
+
+if (x_limit_type == 'numeric') {
+  x_start_enabled <- !is.null(input$enable_x_start_numeric) && input$enable_x_start_numeric == TRUE
+  x_end_enabled <- !is.null(input$enable_x_end_numeric) && input$enable_x_end_numeric == TRUE
+  
+  if (x_start_enabled || x_end_enabled) {
+    x_data_range <- range(plot_df$x_axis, na.rm = TRUE)
+    x_start <- if(x_start_enabled && !is.null(input$x_start_numeric)) input$x_start_numeric else x_data_range[1]
+    x_end <- if(x_end_enabled && !is.null(input$x_end_numeric)) input$x_end_numeric else x_data_range[2]
+    xlim_values <- c(x_start, x_end)
+  } else {
+    xlim_values <- NULL
+  }
+} else if (x_limit_type == 'timestamp') {
+  x_start_enabled <- !is.null(input$enable_x_start_timestamp) && input$enable_x_start_timestamp == TRUE
+  x_end_enabled <- !is.null(input$enable_x_end_timestamp) && input$enable_x_end_timestamp == TRUE
+  
+  if (x_start_enabled || x_end_enabled) {
+    x_data_range <- range(plot_df$x_axis, na.rm = TRUE)
+    
+    x_start <- if(x_start_enabled && !is.null(input$x_start_date) && !is.null(input$x_start_time)) {
+      as.POSIXct(paste(
+        as.character(input$x_start_date), 
+        format(input$x_start_time, '%H:%M:%S')
+      ))
+    } else {
+      x_data_range[1]
+    }
+    
+    x_end <- if(x_end_enabled && !is.null(input$x_end_date) && !is.null(input$x_end_time)) {
+      as.POSIXct(paste(
+        as.character(input$x_end_date), 
+        format(input$x_end_time, '%H:%M:%S')
+      ))
+    } else {
+      x_data_range[2]
+    }
+    
+    xlim_values <- c(x_start, x_end)
+  } else {
+    xlim_values <- NULL
+  }
+} else {
+  xlim_values <- NULL
+}
+
+# -----------------------------------------------------------------------------
+# 2. Helper to compute minor breaks from majors + a count
+# -----------------------------------------------------------------------------
+make_minor_breaks <- function(majors, n_between) {
+  if (length(majors) < 2 || n_between < 1) return(numeric(0))
+  
+  minors <- c()
+  for (i in seq_len(length(majors) - 1)) {
+    a <- majors[i]
+    b <- majors[i + 1]
+    
+    if (inherits(a, c('POSIXct', 'POSIXt', 'Date'))) {
+      # For time data - handle POSIXct properly
+      time_diff_seconds <- as.numeric(difftime(b, a, units = 'secs'))
+      step_seconds <- time_diff_seconds / (n_between + 1)
+      
+      # Create minor time points
+      for (j in 1:n_between) {
+        minor_time <- a + (j * step_seconds)
+        minors <- c(minors, as.numeric(minor_time))
+      }
+    } else {
+      # For numeric data
+      step <- (b - a) / (n_between + 1)
+      minor_vals <- seq(a + step, b - step, length.out = n_between)
+      minors <- c(minors, minor_vals)
+    }
+  }
+  
+  # Convert back to original class
+  if (length(majors) > 0 && inherits(majors[1], c('POSIXct', 'POSIXt'))) {
+    minors <- as.POSIXct(minors, origin = '1970-01-01', tz = attr(majors[1], 'tzone'))
+  } else if (length(majors) > 0 && inherits(majors[1], 'Date')) {
+    minors <- as.Date(minors, origin = '1970-01-01')
+  }
+  
+  return(minors)
+}
+
+# -----------------------------------------------------------------------------
+# 3. Compute major breaks based on data type
+# -----------------------------------------------------------------------------
+x_breaks <- NULL
+y_breaks <- NULL
+x_minor_breaks <- NULL
+y_minor_breaks <- NULL
+
+# Get vertical grid type setting (user choice: 'auto', 'numeric', 'timestamp')
+vertical_grid_type <- if(!is.null(input$vertical_grid_type)) input$vertical_grid_type else 'auto'
+
+# X-axis breaks (handle timestamps and numeric based on user choice)
+if (enable_maj_x) {
+  # Determine how to treat x-axis data based on user selection
+  use_timestamp_mode <- (vertical_grid_type == 'timestamp') || 
+                       (vertical_grid_type == 'auto' && inherits(plot_df$x_axis, c('POSIXct', 'POSIXt', 'Date')))
+  
+  if (use_timestamp_mode) {
+    # For timestamp data, maj_x_by is interpreted as minutes
+    x_data_range <- range(plot_df$x_axis, na.rm = TRUE)
+    
+    # Create breaks at exact minute intervals for consistent spacing
+    interval_seconds <- maj_x_by * 60  # Convert minutes to seconds
+    
+    # Round start time down to nearest interval and end time up to nearest interval
+    start_time <- x_data_range[1]
+    end_time <- x_data_range[2]
+    
+    # Create sequence with exact time intervals
+    x_breaks <- seq(from = start_time, to = end_time, by = interval_seconds)
+    
+    # Ensure we have at least 2 breaks for the grid to work
+    if (length(x_breaks) < 2) {
+      # If interval is too large, create at least start and end
+      x_breaks <- seq(from = start_time, to = end_time, length.out = 3)
+    }
+  } else {
+    # For numeric data (force convert if needed)
+    x_numeric_data <- as.numeric(plot_df$x_axis)
+    x_data_range <- range(x_numeric_data, na.rm = TRUE)
+    x_breaks <- seq(
+      from = floor(x_data_range[1] / maj_x_by) * maj_x_by,
+      to = ceiling(x_data_range[2] / maj_x_by) * maj_x_by,
+      by = maj_x_by
+    )
+  }
+  
+  # Calculate minor breaks if enabled
+  if (enable_min_x && !is.null(x_breaks)) {
+    x_minor_breaks <- make_minor_breaks(x_breaks, nmin_x)
+  }
+}
+
+# Y-axis breaks (always numeric in this case)
+if (enable_maj_y && is.numeric(plot_df$value)) {
+  y_data_range <- range(plot_df$value, na.rm = TRUE)
+  y_breaks <- seq(
+    from = floor(y_data_range[1] / maj_y_by) * maj_y_by,
+    to = ceiling(y_data_range[2] / maj_y_by) * maj_y_by,
+    by = maj_y_by
+  )
+  
+  # Calculate minor breaks if enabled
+  if (enable_min_y && !is.null(y_breaks)) {
+    y_minor_breaks <- make_minor_breaks(y_breaks, nmin_y)
+  }
+}
+
+# -----------------------------------------------------------------------------
+# 4. Apply scales with custom breaks (trans only works with continuous scales)
+# -----------------------------------------------------------------------------
+if (!is.null(x_breaks)) {
+  # Determine which scale function to use
+  use_timestamp_mode <- (vertical_grid_type == 'timestamp') || 
+                       (vertical_grid_type == 'auto' && inherits(plot_df$x_axis, c('POSIXct', 'POSIXt', 'Date')))
+  
+  if (use_timestamp_mode) {
+    if (inherits(plot_df$x_axis, c('POSIXct', 'POSIXt'))) {
+      p <- p + scale_x_datetime(
+        breaks = x_breaks,
+        minor_breaks = x_minor_breaks
+      )
+    } else if (inherits(plot_df$x_axis, 'Date')) {
+      p <- p + scale_x_date(
+        breaks = x_breaks,
+        minor_breaks = x_minor_breaks
+      )
+    }
+  } else {
+    # Use continuous scale with transformation support
+    p <- p + scale_x_continuous(
+      trans = x_trans,
+      breaks = x_breaks,
+      minor_breaks = x_minor_breaks
+    )
+  }
+} else {
+  # No custom breaks - apply appropriate scale
+  use_timestamp_mode <- (vertical_grid_type == 'timestamp') || 
+                       (vertical_grid_type == 'auto' && inherits(plot_df$x_axis, c('POSIXct', 'POSIXt', 'Date')))
+  
+  if (use_timestamp_mode) {
+    if (inherits(plot_df$x_axis, c('POSIXct', 'POSIXt'))) {
+      p <- p + scale_x_datetime()
+    } else if (inherits(plot_df$x_axis, 'Date')) {
+      p <- p + scale_x_date()
+    }
+  } else {
+    p <- p + scale_x_continuous(trans = x_trans)
+  }
+}
+
+if (!is.null(y_breaks)) {
+  p <- p + scale_y_continuous(
+    trans = y_trans,
+    breaks = y_breaks,
+    minor_breaks = y_minor_breaks
+  )
+} else {
+  p <- p + scale_y_continuous(trans = y_trans)
+}
+
+# -----------------------------------------------------------------------------
+# 5. Apply grid line theming
+# -----------------------------------------------------------------------------
+theme_updates <- list()
+
+# Major grid lines
+if (enable_maj_x) {
+  theme_updates$panel.grid.major.x <- element_line(
+    color = maj_x_col,
+    linewidth = maj_x_lw,
+    linetype = maj_x_lt
+  )
+} else {
+  theme_updates$panel.grid.major.x <- element_blank()
+}
+
+if (enable_maj_y) {
+  theme_updates$panel.grid.major.y <- element_line(
+    color = maj_y_col,
+    linewidth = maj_y_lw,
+    linetype = maj_y_lt
+  )
+} else {
+  theme_updates$panel.grid.major.y <- element_blank()
+}
+
+# Minor grid lines
+if (enable_min_x) {
+  theme_updates$panel.grid.minor.x <- element_line(
+    color = min_x_col,
+    linewidth = min_x_lw,
+    linetype = min_x_lt
+  )
+} else {
+  theme_updates$panel.grid.minor.x <- element_blank()
+}
+
+if (enable_min_y) {
+  theme_updates$panel.grid.minor.y <- element_line(
+    color = min_y_col,
+    linewidth = min_y_lw,
+    linetype = min_y_lt
+  )
+} else {
+  theme_updates$panel.grid.minor.y <- element_blank()
+}
+
+# Apply all theme updates at once
+p <- p + do.call(theme, theme_updates)
+
+# Store limits for use in final template
+assign('xlim_values', xlim_values, envir = .GlobalEnv) 
+assign('ylim_values', ylim_values, envir = .GlobalEnv)
+
+p # Return plot with grid and axis controls
+"
+
+# 6. Faceting & Final Template
+ggplot_faceting_final_template <- "# Faceting & Final Assembly
+# Available: p (complete plot), plot_df, input (UI inputs), xlim_values, ylim_values  
+# Purpose: Add faceting, resolve coord_cartesian vs free scales, apply final legend
+
+# Check if faceting is being used
+has_faceting <- !is.null(input$plot_facet_end) && input$plot_facet_end > 0 && 'series' %in% names(plot_df)
+
+# Apply hard boundaries using coord_cartesian for precise plot edges
+# Note: coord_cartesian conflicts with facet free scales, so we only apply it when not faceting
+if ((!is.null(xlim_values) || !is.null(ylim_values)) && !has_faceting) {
+  p <- p + coord_cartesian(xlim = xlim_values, ylim = ylim_values, expand = FALSE)
+} else if (!is.null(xlim_values) || !is.null(ylim_values)) {
+  # For faceted plots, use scale limits instead of coord_cartesian to preserve free scales
+  if (!is.null(xlim_values)) {
+    p <- p + scale_x_continuous(limits = xlim_values, expand = c(0, 0))
+  }
+  if (!is.null(ylim_values)) {
+    p <- p + scale_y_continuous(limits = ylim_values, expand = c(0, 0))
+  }
+}
+
+# Line legends are now handled in the Statistical Overlays template
+# No additional legend processing needed here
 
 # Add faceting if specified
-if (!is.null(input$plot_facet_end) && input$plot_facet_end > 0 && 'series' %in% names(plot_df)) {
+if (has_faceting) {
   facet_start <- if(input$plot_facet_start > 0) input$plot_facet_start else 1
   plot_df$facet_var <- str_sub(plot_df$series, facet_start, input$plot_facet_end)
   p <- p + facet_wrap(~facet_var, nrow = input$plot_facet_nrow, scales = 'free_y')
 }
 
-p # Return ggplot object
+p # Return final ggplot object
+"
+
+# Static Plot Template (ggplot2)
+ggplot_static_template <- "# Combined Static Plot Template
+# This template combines all 6 modular templates for a complete static plot
+# Available: df (processed data), input (UI inputs)
+# Return: ggplot object
+
+# Step 1: Data Processing
+eval(parse(text = ggplot_data_processing_template))
+# Result: plot_df, x_label
+
+# Step 2: Base Plot Setup  
+eval(parse(text = ggplot_base_setup_template))
+# Result: p (base plot)
+
+# Step 3: Themes & Styling
+eval(parse(text = ggplot_themes_styling_template))
+# Result: p (styled plot)
+
+# Step 4: Statistical Overlays
+eval(parse(text = ggplot_statistical_overlays_template))
+# Result: p (plot with overlays)
+
+# Step 5: Grid & Axes
+eval(parse(text = ggplot_grid_axes_template))
+# Result: p (plot with grid/axes), xlim_values, ylim_values
+
+# Step 6: Faceting & Final
+eval(parse(text = ggplot_faceting_final_template))
+# Result: p (final ggplot object)
+
+p # Return final plot
 "
 
 ggplot_interactive_template <- r"---(
@@ -510,11 +1288,23 @@ if (!is.null(input$hline_1) && !is.na(input$hline_1)) {
 if (!is.null(input$hline_2) && !is.na(input$hline_2)) {
   shapes_list[[length(shapes_list) + 1]] <- list(type = 'line', x0 = 0, x1 = 1, xref = "paper", y0 = input$hline_2, y1 = input$hline_2, line = list(color = 'blue', dash = 'dash'))
 }
+if (!is.null(input$hline_3) && !is.na(input$hline_3)) {
+  shapes_list[[length(shapes_list) + 1]] <- list(type = 'line', x0 = 0, x1 = 1, xref = "paper", y0 = input$hline_3, y1 = input$hline_3, line = list(color = 'purple', dash = 'dash'))
+}
+if (!is.null(input$hline_4) && !is.na(input$hline_4)) {
+  shapes_list[[length(shapes_list) + 1]] <- list(type = 'line', x0 = 0, x1 = 1, xref = "paper", y0 = input$hline_4, y1 = input$hline_4, line = list(color = 'orange', dash = 'dash'))
+}
 if (!is.null(input$vline_1) && !is.na(input$vline_1)) {
   shapes_list[[length(shapes_list) + 1]] <- list(type = 'line', x0 = input$vline_1, x1 = input$vline_1, y0 = 0, y1 = 1, yref = "paper", line = list(color = 'red', dash = 'dash'))
 }
 if (!is.null(input$vline_2) && !is.na(input$vline_2)) {
   shapes_list[[length(shapes_list) + 1]] <- list(type = 'line', x0 = input$vline_2, x1 = input$vline_2, y0 = 0, y1 = 1, yref = "paper", line = list(color = 'blue', dash = 'dash'))
+}
+if (!is.null(input$vline_3) && !is.na(input$vline_3)) {
+  shapes_list[[length(shapes_list) + 1]] <- list(type = 'line', x0 = input$vline_3, x1 = input$vline_3, y0 = 0, y1 = 1, yref = "paper", line = list(color = 'purple', dash = 'dash'))
+}
+if (!is.null(input$vline_4) && !is.na(input$vline_4)) {
+  shapes_list[[length(shapes_list) + 1]] <- list(type = 'line', x0 = input$vline_4, x1 = input$vline_4, y0 = 0, y1 = 1, yref = "paper", line = list(color = 'orange', dash = 'dash'))
 }
 
 # Add layout and labels
@@ -524,7 +1314,15 @@ p <- p |> layout(
   yaxis = list(title = list(text = if(!is.null(input$plot_ylabel)) input$plot_ylabel else 'Y Axis', font = list(size = yaxis_size)), tickfont = list(size = yaxis_size * 0.9)),
   hovermode = 'x unified',
   legend = list(orientation = 'h', y = -0.2),
-  shapes = shapes_list
+  shapes = shapes_list,
+  annotations = list(
+    list(
+      x = 1, y = 0, xref = 'paper', yref = 'paper',
+      text = if(!is.null(input$plot_caption) && nzchar(input$plot_caption)) input$plot_caption else '',
+      showarrow = FALSE, xanchor = 'right', yanchor = 'bottom',
+      font = list(size = 10, color = 'grey')
+    )
+  )
 )
 
 # JavaScript for dynamic subtitles and table
@@ -593,9 +1391,9 @@ stats_table_div <- div(
 )
 
 # Combine the plot and the table placeholder into a single output
-final_output <- tagList(
-  p,
-  stats_table_div
+final_output <- navset_card_pill(
+nav_panel(title = "plot", p),
+nav_panel(title = "table", stats_table_div),
 )
 
 # Return the final combined object
@@ -706,10 +1504,10 @@ if (is.null(df) || nrow(df) == 0) {
     # Execute static template code and render as plot
     static_plot <- eval(parse(text = static_code))
     renderPlot({ static_plot }, height = 600)
-  } else if (input$plot_type == 'dynamic') {
-    # Execute interactive template code and render as plotly
+  } else if (input$plot_type == 'interactive') {
+    # Execute interactive template code and return plotly object directly
     interactive_plot <- eval(parse(text = interactive_code))
-    renderPlotly({ interactive_plot })
+    renderUI({ interactive_plot })
   } else if (input$plot_type == 'table') {
     # Execute table template code and render as DT
     table_output <- eval(parse(text = table_code))

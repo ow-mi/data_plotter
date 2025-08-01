@@ -344,7 +344,7 @@ ui <- page_navbar(
 # Add JavaScript for dynamic tab renaming and folder upload
 ui <- tagList(
   ui,
-  tags$script(HTML("
+  tags$script(HTML(r"---(
     console.log('Tab renaming JavaScript loaded');
     
     // Dynamic navbar height calculation and module sizing
@@ -394,22 +394,39 @@ ui <- tagList(
     window.addEventListener('resize', updateModuleHeights);
     
     // Run when new tabs are added (using MutationObserver)
+    // Throttle the height update function to prevent excessive calls
+    let heightUpdateTimeout = null;
+    function throttledUpdateModuleHeights() {
+      if (heightUpdateTimeout) {
+        clearTimeout(heightUpdateTimeout);
+      }
+      heightUpdateTimeout = setTimeout(updateModuleHeights, 150);
+    }
+
     const observer = new MutationObserver(function(mutations) {
+      let shouldUpdate = false;
+      
       mutations.forEach(function(mutation) {
         if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
-          // Check if new nav-panels were added
+          // Only trigger for significant DOM changes, not every hover/input change
           const hasNewNavPanel = Array.from(mutation.addedNodes).some(node => 
             node.nodeType === 1 && (
               node.classList?.contains('nav-item') || 
-              node.querySelector?.('.nav-item')
+              node.classList?.contains('tab-pane') ||
+              node.querySelector?.('.nav-item') ||
+              node.querySelector?.('.module-container')
             )
           );
           
           if (hasNewNavPanel) {
-            setTimeout(updateModuleHeights, 100); // Small delay to ensure DOM is ready
+            shouldUpdate = true;
           }
         }
       });
+      
+      if (shouldUpdate) {
+        throttledUpdateModuleHeights();
+      }
     });
     
          // Observe the navbar and main content for changes
@@ -733,76 +750,72 @@ ui <- tagList(
     // Handle custom message for updating tab titles
     Shiny.addCustomMessageHandler('updateNavTabTitle', function(data) {
       console.log('=== TAB RENAME MESSAGE RECEIVED ===');
-      console.log('Full data object:', data);
+      console.log('Module ID:', data.moduleId, 'New Title:', data.newTitle, 'Old Title:', data.oldTitle);
       
       var moduleId = data.moduleId;
       var newTitle = data.newTitle;
       var oldTitle = data.oldTitle;
-      
-      console.log('Module ID:', moduleId);
-      console.log('New Title:', newTitle);
-      console.log('Old Title:', oldTitle);
-      
-      // Check if we have a stored mapping for this module
-      if (window.tabMappings[moduleId]) {
-        console.log('Found stored mapping for module:', window.tabMappings[moduleId]);
-        oldTitle = window.tabMappings[moduleId]; // Use the stored current title
-      }
-      
-      // Log all current navigation elements for debugging
-      console.log('Current navigation elements:');
-      var allNavs = document.querySelectorAll('.nav-link, .navbar-nav a, .nav-item a, .navbar-nav .nav-link');
-      allNavs.forEach(function(nav, index) {
-        console.log(index + ':', {
-          text: nav.textContent.trim(),
-          href: nav.getAttribute('href'),
-          dataValue: nav.getAttribute('data-value'),
-          ariaControls: nav.getAttribute('aria-controls'),
-          id: nav.getAttribute('id'),
-          classes: nav.className
-        });
-      });
-      
       var success = false;
       var updatedElement = null;
       
-      // Strategy 1: Find by exact text match with old title
-      if (oldTitle && !success) {
-        console.log('Strategy 1: Looking for exact text match with:', oldTitle);
-        var textMatches = Array.from(document.querySelectorAll('.nav-link, .navbar-nav a, .nav-item a')).filter(function(link) {
+      // Strategy 1: Find by previously stored data-module-id attribute
+      var existingElement = document.querySelector('.nav-link[data-module-id="' + moduleId + '"]');
+      if (existingElement) {
+        existingElement.textContent = newTitle;
+        updatedElement = existingElement;
+        success = true;
+        console.log('SUCCESS: Updated via stored module ID');
+      }
+      
+      // Strategy 2: Find by exact text match with old title
+      if (!success && oldTitle) {
+        var textMatches = Array.from(document.querySelectorAll('.nav-link')).filter(function(link) {
           return link.textContent.trim() === oldTitle.trim();
         });
-        
-        console.log('Found', textMatches.length, 'elements matching old title');
         
         if (textMatches.length > 0) {
           textMatches[0].textContent = newTitle;
           updatedElement = textMatches[0];
           success = true;
-          console.log('SUCCESS: Updated via text match');
+          console.log('SUCCESS: Updated via exact text match');
         }
       }
       
-      // Strategy 2: Look for any element containing 'Import' and update the first one (for initial renames)
-      if (!success && oldTitle && oldTitle.includes('Import')) {
-        console.log('Strategy 2: Looking for elements containing Import');
-        var importElements = Array.from(document.querySelectorAll('.nav-link, .navbar-nav a, .nav-item a')).filter(function(link) {
-          return link.textContent.trim().includes('Import');
-        });
+      // Strategy 3: Find by module ID pattern (for import and plotter modules)
+      if (!success) {
+        var navLinks = document.querySelectorAll('.nav-link');
         
-        console.log('Found', importElements.length, 'elements containing Import');
+        // For import modules, look for 'Import X' pattern and match the number
+        if (moduleId.includes('data_import_module_')) {
+          var moduleNumber = moduleId.replace('data_import_module_', '');
+          var importPattern = new RegExp('Import\\s+' + moduleNumber + '($|\\s)');
+          
+          Array.from(navLinks).forEach(function(link) {
+            if (!success && importPattern.test(link.textContent.trim())) {
+              link.textContent = newTitle;
+              updatedElement = link;
+              success = true;
+              console.log('SUCCESS: Updated import module via pattern matching');
+            }
+          });
+        }
         
-        if (importElements.length > 0) {
-          importElements[0].textContent = newTitle;
-          updatedElement = importElements[0];
-          success = true;
-          console.log('SUCCESS: Updated via Import search');
+        // For plotter modules, look for 'plotter_X' pattern
+        if (!success && moduleId.includes('plotter_')) {
+          Array.from(navLinks).forEach(function(link) {
+            if (!success && link.textContent.trim() === moduleId) {
+              link.textContent = newTitle;
+              updatedElement = link;
+              success = true;
+              console.log('SUCCESS: Updated plotter module via ID matching');
+            }
+          });
         }
       }
       
-      // Strategy 3: Look for the most recently updated tab (stored in our mapping)
+      // Strategy 4: Check stored mappings as fallback
       if (!success && window.tabMappings[moduleId]) {
-        console.log('Strategy 3: Looking for previously mapped tab');
+        console.log('Strategy 4: Looking for previously mapped tab');
         var mappedTitle = window.tabMappings[moduleId];
         var mappedElements = Array.from(document.querySelectorAll('.nav-link, .navbar-nav a, .nav-item a')).filter(function(link) {
           return link.textContent.trim() === mappedTitle.trim();
@@ -818,9 +831,9 @@ ui <- tagList(
         }
       }
       
-      // Strategy 4: Brute force - find any nav element and update it (last resort)
+      // Strategy 5: Brute force - find any nav element and update it (last resort)
       if (!success) {
-        console.log('Strategy 4: Brute force update of first available nav element');
+        console.log('Strategy 5: Brute force update of first available nav element');
         var allNavElements = document.querySelectorAll('.nav-link, .navbar-nav a, .nav-item a');
         
         // Look for elements that might be import tabs (avoid updating other tabs)
@@ -855,27 +868,73 @@ ui <- tagList(
     
          console.log('Tab renaming handler registered');
      
-     // Existing tab renaming code...
-     $(document).on('dblclick', '.nav-link', function() {
-       var currentText = $(this).find('.nav-text').text() || $(this).text();
-       var input = $('<input type=\"text\" class=\"form-control form-control-sm\" style=\"width: auto; display: inline-block;\">').val(currentText);
+     // Fixed tab renaming code for Bootstrap 5
+     $(document).on('dblclick', '.nav-link', function(e) {
+       e.preventDefault();
        
-       $(this).find('.nav-text').hide();
-       $(this).append(input);
-       input.focus().select();
+       var $navLink = $(this);
+       var currentText = $navLink.text().trim();
        
-       input.on('blur keydown', function(e) {
-         if (e.type === 'blur' || e.keyCode === 13) {
-           var newText = $(this).val();
-           $(this).siblings('.nav-text').text(newText).show();
-           $(this).remove();
-         } else if (e.keyCode === 27) {
-           $(this).siblings('.nav-text').show();
-           $(this).remove();
+       console.log('Double-click detected on tab:', currentText);
+       
+       // Don't allow editing if already editing
+       if ($navLink.find('input').length > 0) {
+         return;
+       }
+       
+       // Create input element
+       var $input = $('<input type="text" class="form-control form-control-sm tab-rename-input">');
+       $input.css({
+         'width': 'auto',
+         'min-width': '120px',
+         'display': 'inline-block',
+         'font-size': '14px',
+         'padding': '2px 8px',
+         'margin': '0',
+         'border': '2px solid #007bff',
+         'border-radius': '4px'
+       });
+       $input.val(currentText);
+       
+       // Store original text
+       $navLink.data('original-text', currentText);
+       
+       // Replace tab text with input
+       $navLink.html($input);
+       $input.focus().select();
+       
+       // Handle input events
+       $input.on('blur keydown', function(e) {
+         if (e.type === 'blur' || e.keyCode === 13) { // Enter key
+           var newText = $(this).val().trim();
+           
+           if (newText && newText !== currentText) {
+             console.log('Tab rename requested:', currentText, '->', newText);
+             
+             // Send message to Shiny for server-side update
+             Shiny.setInputValue('tab_rename_request', {
+               oldText: currentText,
+               newText: newText,
+               timestamp: Date.now()
+             });
+           }
+           
+           // Restore original text (will be updated by server if successful)
+           $navLink.text(currentText);
+           
+         } else if (e.keyCode === 27) { // Escape key
+           console.log('Tab rename cancelled');
+           $navLink.text(currentText);
          }
        });
+       
+       // Prevent the input from triggering navigation
+       $input.on('click', function(e) {
+         e.stopPropagation();
+         e.preventDefault();
+       });
      });
-   ")),
+   )---")),
   
   # Add CSS for module styling
   tags$style(HTML("
@@ -913,12 +972,57 @@ ui <- tagList(
       max-height: calc(100% - 20px) !important;
     }
     
-    /* Ensure tables and plots fit properly */
-    .dataTables_wrapper,
+    /* Ensure tables and plots fill their containers properly */
+    .dataTables_wrapper {
+      height: calc(100% - 50px) !important;
+      max-height: calc(100% - 50px) !important;
+      overflow: auto !important;
+    }
+    
     .plotly,
     .shiny-plot-output {
-      max-height: calc(100% - 100px) !important;
+      height: calc(100% - 50px) !important;
+      max-height: calc(100% - 50px) !important;
       overflow: auto !important;
+    }
+    
+    /* Ensure card bodies take full height */
+    .card-body {
+      display: flex !important;
+      flex-direction: column !important;
+      height: 100% !important;
+    }
+    
+    /* Ace editor specific styling for sidebars */
+    .sidebar .ace_editor {
+      height: calc(100vh - 350px) !important;
+      min-height: 300px !important;
+      max-height: calc(100vh - 200px) !important;
+    }
+    
+    /* Ace editor in popovers should stay smaller */
+    .popover .ace_editor {
+      height: 200px !important;
+      min-height: 150px !important;
+      max-height: 300px !important;
+    }
+    
+    /* Large popover for table code editing */
+    .large-popover {
+      max-width: 800px !important;
+      width: 800px !important;
+    }
+    
+    .large-popover .popover-body {
+      padding: 15px !important;
+      max-height: 500px !important;
+      overflow-y: auto !important;
+    }
+    
+    .large-popover .ace_editor {
+      height: 300px !important;
+      min-height: 250px !important;
+      max-height: 400px !important;
     }
     
     /* Responsive adjustments */
@@ -933,6 +1037,7 @@ ui <- tagList(
 # Server Logic
 server <- function(input, output, session) {
   options(shiny.maxRequestSize = 1000 * 1024^2) # 1GB
+  toggle_dark_mode(mode = "dark")
 
   # JSON-Based Template Save/Load Logic
   safe_input_value <- function(val) {
@@ -1085,6 +1190,21 @@ server <- function(input, output, session) {
           current_instances[[import_id]] <- importer_module_output
           importer_instances(current_instances)
           
+          # Observe tab rename trigger from this importer module
+          observeEvent(importer_module_output$tab_rename_trigger(), {
+            req(importer_module_output$tab_rename_trigger())
+            
+            rename_data <- importer_module_output$tab_rename_trigger()
+            cat("Importer tab rename triggered:", rename_data$newName, "\n")
+            
+            # Send message to JavaScript to update the tab
+            session$sendCustomMessage("updateNavTabTitle", list(
+              moduleId = rename_data$moduleId,
+              newTitle = rename_data$newName,
+              oldTitle = rename_data$currentTitle
+            ))
+          })
+          
           cat("Created importer:", import_id, "\n")
         }
       }
@@ -1115,6 +1235,21 @@ server <- function(input, output, session) {
           current_instances <- plotter_instances()
           current_instances[[plot_id]] <- plotter_module_output
           plotter_instances(current_instances)
+          
+          # Observe plot rename trigger from this plotter module
+          observeEvent(plotter_module_output$plot_rename_trigger(), {
+            req(plotter_module_output$plot_rename_trigger())
+            
+            rename_data <- plotter_module_output$plot_rename_trigger()
+            cat("Plotter tab rename triggered:", rename_data$newName, "\n")
+            
+            # Send message to JavaScript to update the tab
+            session$sendCustomMessage("updateNavTabTitle", list(
+              moduleId = rename_data$moduleId,
+              newTitle = rename_data$newName,
+              oldTitle = rename_data$currentTitle
+            ))
+          })
           
           cat("Created plotter:", plot_id, "\n")
         }
@@ -1551,6 +1686,21 @@ server <- function(input, output, session) {
     current_instances[[import_id]] <- importer_module_output
     importer_instances(current_instances)
     
+    # Observe tab rename trigger from this importer module
+    observeEvent(importer_module_output$tab_rename_trigger(), {
+      req(importer_module_output$tab_rename_trigger())
+      
+      rename_data <- importer_module_output$tab_rename_trigger()
+      cat("Manual importer tab rename triggered:", rename_data$newName, "\n")
+      
+      # Send message to JavaScript to update the tab
+      session$sendCustomMessage("updateNavTabTitle", list(
+        moduleId = rename_data$moduleId,
+        newTitle = rename_data$newName,
+        oldTitle = rename_data$currentTitle
+      ))
+    })
+    
     showNotification(
       paste("Added data import tab:", current_count), 
       type = "message"
@@ -1591,6 +1741,21 @@ server <- function(input, output, session) {
       current_instances <- list()
       current_instances[[import_id]] <- importer_module_output
       importer_instances(current_instances)
+      
+      # Observe tab rename trigger from this default importer module
+      observeEvent(importer_module_output$tab_rename_trigger(), {
+        req(importer_module_output$tab_rename_trigger())
+        
+        rename_data <- importer_module_output$tab_rename_trigger()
+        cat("Default importer tab rename triggered:", rename_data$newName, "\n")
+        
+        # Send message to JavaScript to update the tab
+        session$sendCustomMessage("updateNavTabTitle", list(
+          moduleId = rename_data$moduleId,
+          newTitle = rename_data$newName,
+          oldTitle = rename_data$currentTitle
+        ))
+      })
     }
   }, once = TRUE)
 
@@ -1618,6 +1783,21 @@ server <- function(input, output, session) {
     current_instances <- plotter_instances()
     current_instances[[plot_id]] <- plotter_module_output
     plotter_instances(current_instances)
+    
+    # Observe plot rename trigger from this plotter module
+    observeEvent(plotter_module_output$plot_rename_trigger(), {
+      req(plotter_module_output$plot_rename_trigger())
+      
+      rename_data <- plotter_module_output$plot_rename_trigger()
+      cat("Manual plotter tab rename triggered:", rename_data$newName, "\n")
+      
+      # Send message to JavaScript to update the tab
+      session$sendCustomMessage("updateNavTabTitle", list(
+        moduleId = rename_data$moduleId,
+        newTitle = rename_data$newName,
+        oldTitle = rename_data$currentTitle
+      ))
+    })
     
     showNotification(paste("Added plotter tab:", plot_id), type = "message")
   })
