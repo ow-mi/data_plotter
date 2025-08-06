@@ -36,8 +36,8 @@ A powerful, modular Shiny application for data import, processing, and visualiza
 ```r
 # Core packages
 install.packages(c(
-  "shiny", "shinyTime", "shinyjqui", "bslib", "shinyAce", 
-  "shinyFiles", "stringr", "data.table", "DT", "R.utils"
+  "shiny", "shinyTime", "bslib", "shinyAce", 
+  "stringr", "data.table", "DT"
 ))
 
 # Visualization packages  
@@ -53,17 +53,33 @@ install.packages(c(
 
 # Additional packages
 install.packages(c(
-  "purrr", "promises", "future", "rstudioapi", 
-  "skimr", "spsComps"
+  "purrr", "future", "skimr", "spsComps", "base64enc"
 ))
 ```
 
 ### Installation
+
+#### Option 1: Package-based Development (Recommended)
 1. Clone or download this repository
 2. Open R/RStudio and set working directory to the app folder
 3. Install required packages (see above)
-4. Run the application:
+4. Install package development tools:
 ```r
+install.packages(c("devtools", "pkgload"))
+```
+5. Load and run the application:
+```r
+# For development
+devtools::load_all(".")
+run_data_plotter()
+
+# Or using the package-based app.R
+shiny::runApp("app_package.R")
+```
+
+#### Option 2: Traditional Single-file App
+```r
+# Run the original app structure
 shiny::runApp("app.R")
 ```
 
@@ -94,6 +110,13 @@ shiny::runApp("app.R")
 
 ## 🏗️ Architecture
 
+### Package Structure
+This application follows R package development best practices:
+- **Organized Code**: All R code in `R/` directory with proper modularization
+- **Dependency Management**: All packages declared in `DESCRIPTION` file
+- **Development Workflow**: Use `devtools::load_all()` for fast iteration
+- **Deployment Ready**: Package-based deployment with `pkgload`
+
 ### Module Structure
 - **`server_data_import`**: Handles file upload and processing for each importer
 - **`server_data_combiner`**: Merges data from multiple importers
@@ -101,10 +124,14 @@ shiny::runApp("app.R")
 - **`server_data_table_display`**: Provides interactive data table views
 
 ### Key Files
-- **`app.R`**: Main application file with UI and server logic
-- **`functions.R`**: Core helper functions and server modules
-- **`r_code_.R`**: Default R code templates for data processing
-- **`www/`**: Static web assets and autocomplete configurations
+- **`R/ui.R`**: User interface definition (extracted from app.R)
+- **`R/server.R`**: Server logic (extracted from app.R)
+- **`R/run_app.R`**: Main application wrapper function
+- **`R/functions.R`**: Core helper functions and utilities
+- **`R/module_*.R`**: Shiny modules for different components
+- **`inst/code_template/`**: R code templates for data processing
+- **`DESCRIPTION`**: Package metadata and dependencies
+- **`app_package.R`**: Package-based app launcher for deployment
 
 ### Data Flow
 ```

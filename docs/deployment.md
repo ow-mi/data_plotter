@@ -23,11 +23,11 @@ Run the following script to install all required packages:
 # Install required packages
 required_packages <- c(
   # Core Shiny packages
-  "shiny", "shinyTime", "shinyjqui", "bslib", "shinyAce", 
-  "shinyFiles", "DT", "spsComps",
+  "shiny", "shinyTime", "bslib", "shinyAce", 
+  "DT", "spsComps",
   
   # Data handling
-  "stringr", "data.table", "R.utils", "lubridate", 
+  "stringr", "data.table", "lubridate", 
   "jsonlite", "fasttime", "readxl", "fst", "nanoparquet", 
   "tools", "purrr", "skimr",
   
@@ -35,7 +35,7 @@ required_packages <- c(
   "ggplot2", "plotly", "scattermore", "htmlwidgets",
   
   # Processing and utilities
-  "promises", "future", "rstudioapi"
+  "future", "base64enc"
 )
 
 # Check which packages are already installed
