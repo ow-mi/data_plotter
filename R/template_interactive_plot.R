@@ -2,139 +2,57 @@
 
 # This is a condensed version of the interactive template
 ggplot_interactive_template <- r"---(
+
 # Interactive plot code (plotly)
 # Available: df (processed data), input (UI inputs)  
 # Return: htmltools tagList object
 
 # Ensure required libraries are available
 library(plotly)
-library(data.table)
-library(htmltools)
 
-# Handle X-axis transformation
-plot_df <- copy(df) # Work on a copy
+static_plot <- eval(parse(text = static_code))
 
-if ('timestamp' %in% names(plot_df)) {
-  min_ts <- min(plot_df$timestamp, na.rm = TRUE)
-  
-  # Transform X-axis based on input selection
-  if (!is.null(input$plot_xlabel)) {
-    if (input$plot_xlabel == 'Duration Minutes') {
-      plot_df[, x_axis := as.numeric(difftime(timestamp, min_ts, units = 'mins'))]
-      x_label <- 'Duration (Minutes)'
-    } else if (input$plot_xlabel == 'Duration Hours') {
-      plot_df[, x_axis := as.numeric(difftime(timestamp, min_ts, units = 'hours'))]
-      x_label <- 'Duration (Hours)'
-    } else if (input$plot_xlabel == 'Duration Days') {
-      plot_df[, x_axis := as.numeric(difftime(timestamp, min_ts, units = 'days'))]
-      x_label <- 'Duration (Days)'
-    } else if (input$plot_xlabel == 'Duration Seconds') {
-      plot_df[, x_axis := as.numeric(difftime(timestamp, min_ts, units = 'secs'))]
-      x_label <- 'Duration (Seconds)'
-    } else {
-      # Default to timestamp
-      plot_df[, x_axis := timestamp]
-      x_label <- input$plot_xlabel
-    }
-  } else {
-    plot_df[, x_axis := timestamp]
-    x_label <- 'Timestamp'
-  }
-} else {
-  # No timestamp column
-  plot_df[, x_axis := .I] # Use row index
-  x_label <- 'Index'
-}
 
-# Create base plotly plot with transformed x-axis
-if (!is.null(input$plot_color) && input$plot_color != 'null' && input$plot_color %in% names(plot_df)) {
-  # With color grouping
-  p <- plot_ly(plot_df, x = ~x_axis, y = ~value, 
-               color = as.formula(paste('~', input$plot_color)),
-               type = 'scatter', mode = 'lines',
-               hovertemplate = paste('<b>%{fullData.name}</b><br>',
-                                     x_label, ': %{x}<br>',
-                                     'Value: %{y}<extra></extra>'))
-} else {
-  # Without color grouping
-  p <- plot_ly(plot_df, x = ~x_axis, y = ~value, 
-               type = 'scatter', mode = 'lines',
-               hovertemplate = paste(x_label, ': %{x}<br>',
-                                     'Value: %{y}<extra></extra>'))
-}
+p <- ggplotly(static_plot, tooltip = c("x", "y", "colour"))
 
-# Get font sizes
-title_size <- if(!is.null(input$title_font_size)) input$title_font_size else 14
-xaxis_size <- if(!is.null(input$xaxis_font_size)) input$xaxis_font_size else 12
-yaxis_size <- if(!is.null(input$yaxis_font_size)) input$yaxis_font_size else 12
 
-# Add best fit line if specified
-if (!is.null(input$add_smooth) && input$add_smooth == TRUE) {
-  tryCatch({
-    smooth_fit <- loess(value ~ x_axis, data = plot_df)
-    p <- p |> add_trace(
-      type = 'scatter', mode = 'lines',
-      x = plot_df$x_axis, y = fitted(smooth_fit),
-      line = list(color = 'rgba(255,0,0,0.5)', dash = 'dot'),
-      name = 'Trend Line', showlegend = TRUE
-    )
-  }, error = function(e) {
-    lm_fit <- lm(value ~ x_axis, data = plot_df)
-    p <- p |> add_trace(
-      type = 'scatter', mode = 'lines',
-      x = plot_df$x_axis, y = fitted(lm_fit),
-      line = list(color = 'rgba(255,0,0,0.5)', dash = 'dot'),
-      name = 'Linear Trend', showlegend = TRUE
-    )
-  })
-}
 
 # Add reference lines
 shapes_list <- list()
-if (!is.null(input$hline_1) && !is.na(input$hline_1)) {
-  shapes_list[[length(shapes_list) + 1]] <- list(type = 'line', x0 = 0, x1 = 1, xref = "paper", y0 = input$hline_1, y1 = input$hline_1, line = list(color = 'red', dash = 'dash'))
+add_hline <- function(val, color) {
+  list(type = 'line', x0 = 0, x1 = 1, xref = "paper", y0 = val, y1 = val,
+       line = list(color = color, dash = 'dash'))
 }
-if (!is.null(input$hline_2) && !is.na(input$hline_2)) {
-  shapes_list[[length(shapes_list) + 1]] <- list(type = 'line', x0 = 0, x1 = 1, xref = "paper", y0 = input$hline_2, y1 = input$hline_2, line = list(color = 'blue', dash = 'dash'))
-}
-if (!is.null(input$hline_3) && !is.na(input$hline_3)) {
-  shapes_list[[length(shapes_list) + 1]] <- list(type = 'line', x0 = 0, x1 = 1, xref = "paper", y0 = input$hline_3, y1 = input$hline_3, line = list(color = 'purple', dash = 'dash'))
-}
-if (!is.null(input$hline_4) && !is.na(input$hline_4)) {
-  shapes_list[[length(shapes_list) + 1]] <- list(type = 'line', x0 = 0, x1 = 1, xref = "paper", y0 = input$hline_4, y1 = input$hline_4, line = list(color = 'orange', dash = 'dash'))
-}
-if (!is.null(input$vline_1) && !is.na(input$vline_1)) {
-  shapes_list[[length(shapes_list) + 1]] <- list(type = 'line', x0 = input$vline_1, x1 = input$vline_1, y0 = 0, y1 = 1, yref = "paper", line = list(color = 'red', dash = 'dash'))
-}
-if (!is.null(input$vline_2) && !is.na(input$vline_2)) {
-  shapes_list[[length(shapes_list) + 1]] <- list(type = 'line', x0 = input$vline_2, x1 = input$vline_2, y0 = 0, y1 = 1, yref = "paper", line = list(color = 'blue', dash = 'dash'))
-}
-if (!is.null(input$vline_3) && !is.na(input$vline_3)) {
-  shapes_list[[length(shapes_list) + 1]] <- list(type = 'line', x0 = input$vline_3, x1 = input$vline_3, y0 = 0, y1 = 1, yref = "paper", line = list(color = 'purple', dash = 'dash'))
-}
-if (!is.null(input$vline_4) && !is.na(input$vline_4)) {
-  shapes_list[[length(shapes_list) + 1]] <- list(type = 'line', x0 = input$vline_4, x1 = input$vline_4, y0 = 0, y1 = 1, yref = "paper", line = list(color = 'orange', dash = 'dash'))
+add_vline <- function(val, color) {
+  list(type = 'line', x0 = val, x1 = val, y0 = 0, y1 = 1, yref = "paper",
+       line = list(color = color, dash = 'dash'))
 }
 
-# Add layout and labels
+colors <- c("red", "blue", "purple", "orange")
+for (i in 1:4) {
+  h_val <- input[[paste0("hline_", i)]]
+  if (!is.null(h_val) && !is.na(h_val)) shapes_list[[length(shapes_list) + 1]] <- add_hline(h_val, colors[i])
+  
+  v_val <- input[[paste0("vline_", i)]]
+  if (!is.null(v_val) && !is.na(v_val)) shapes_list[[length(shapes_list) + 1]] <- add_vline(v_val, colors[i])
+}
+
+# Add layout
 p <- p |> layout(
-  title = list(text = if(!is.null(input$plot_title) && nzchar(input$plot_title)) input$plot_title else 'Interactive Plot', font = list(size = title_size)),
-  xaxis = list(title = list(text = x_label, font = list(size = xaxis_size)), tickfont = list(size = xaxis_size * 0.9)),
-  yaxis = list(title = list(text = if(!is.null(input$plot_ylabel)) input$plot_ylabel else 'Y Axis', font = list(size = yaxis_size)), tickfont = list(size = yaxis_size * 0.9)),
-  hovermode = 'x unified',
+  hovermode = "x unified",
   legend = list(orientation = 'h', y = -0.2),
   shapes = shapes_list,
   annotations = list(
     list(
       x = 1, y = 0, xref = 'paper', yref = 'paper',
-      text = if(!is.null(input$plot_caption) && nzchar(input$plot_caption)) input$plot_caption else '',
+      text = input$plot_caption %||% '',
       showarrow = FALSE, xanchor = 'right', yanchor = 'bottom',
       font = list(size = 10, color = 'grey')
     )
   )
 )
 
-# JavaScript for dynamic subtitles and table
+# Attach dynamic table JavaScript
 js_code <- r"(
 function(el, x) {
   if (typeof el._originalDataNames === 'undefined') {
@@ -167,10 +85,10 @@ function(el, x) {
       if (visible_y.length > 0) {
         let min_val = Math.min(...visible_y).toFixed(2);
         let max_val = Math.max(...visible_y).toFixed(2);
-        new_names.push(original_name + ' (Min: ' + min_val + ', Max: ' + max_val + ')');
+        new_names.push(original_name);
         tableHtml += '<tr><td>' + original_name + '</td><td>' + min_val + '</td><td>' + max_val + '</td></tr>';
       } else {
-        new_names.push(original_name + ' (No data in view)');
+        new_names.push(original_name);
         tableHtml += '<tr><td>' + original_name + '</td><td colspan=\"2\">No data in view</td></tr>';
       }
     }
@@ -185,10 +103,9 @@ function(el, x) {
 }
 )"
 
-# Attach the JavaScript to the plot object
 p <- p |> htmlwidgets::onRender(js_code)
 
-# Create a placeholder for the table and add styling
+# Table placeholder
 stats_table_div <- div(
   id = "dynamic-stats-table-container",
   h4("Visible Data Summary"),
@@ -199,14 +116,11 @@ stats_table_div <- div(
   "))
 )
 
-# Combine the plot and the table placeholder into a single output
+# Combine
 final_output <- navset_card_pill(
-nav_panel(title = "plot", p),
-nav_panel(title = "table", stats_table_div),
+  nav_panel(title = "plot", p),
+  nav_panel(title = "table", stats_table_div)
 )
-
-# Return the final combined object
-final_output
 )---"
 
 # NOTE: The complete interactive template includes:
