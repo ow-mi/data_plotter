@@ -486,6 +486,27 @@ page_navbar(
       }
     });
     
+    // Handle automation: trigger button click
+    Shiny.addCustomMessageHandler('triggerButton', function(data) {
+      console.log('Automation: Triggering button click for ID:', data.buttonId);
+      var button = document.getElementById(data.buttonId);
+      if (button) {
+        // Programmatically click the button
+        button.click();
+        console.log('Button clicked via automation:', data.buttonId);
+      } else {
+        console.error('Button not found with ID:', data.buttonId);
+        // Try alternative selectors
+        var altButton = document.querySelector('[data-value="' + data.buttonId + '"]');
+        if (altButton) {
+          altButton.click();
+          console.log('Button clicked via alternative selector:', data.buttonId);
+        } else {
+          console.error('Button not found with any selector for ID:', data.buttonId);
+        }
+      }
+    });
+    
 
     
     // Folder upload handler

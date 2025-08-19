@@ -823,12 +823,18 @@ server_global <- function(input, output, session) {
     processed_count <- 0
     for (importer_id in names(current_importers)) {
       tryCatch({
-        # Trigger processing by setting the input value directly
-        # This approach works better for programmatic triggering
-        input_id <- paste0(importer_id, "-combine_data")
+        # Debug: Print importer information
+        cat("DEBUG: Processing importer_id:", importer_id, "\n")
         
-        # Update the input value to trigger the observeEvent
-        session$sendInputMessage(input_id, list(value = as.numeric(Sys.time())))
+        # Trigger processing by setting the input value directly
+        input_id <- paste0(importer_id, "-combine_data")
+        cat("DEBUG: Constructed input_id:", input_id, "\n")
+        
+        # Try using updateActionButton instead of sendInputMessage
+        session$sendCustomMessage("triggerButton", list(
+          buttonId = input_id,
+          timestamp = as.numeric(Sys.time())
+        ))
         
         processed_count <- processed_count + 1
         cat("Triggered processing for importer:", importer_id, "\n")
@@ -856,15 +862,26 @@ server_global <- function(input, output, session) {
     processed_count <- 0
     for (plotter_id in names(current_plotters)) {
       tryCatch({
+        # Debug: Print plotter information
+        cat("DEBUG: Processing plotter_id:", plotter_id, "\n")
+        
         # First trigger data processing for this plotter
         data_process_id <- paste0(plotter_id, "-data_process_plot")
-        session$sendInputMessage(data_process_id, list(value = as.numeric(Sys.time())))
+        cat("DEBUG: Constructed data_process_id:", data_process_id, "\n")
         
-        # Then trigger plot generation
+        session$sendCustomMessage("triggerButton", list(
+          buttonId = data_process_id,
+          timestamp = as.numeric(Sys.time())
+        ))
+        
+        # Then trigger plot generation (with slight delay)
         plot_render_id <- paste0(plotter_id, "-plot_render")
-        # Note: In practice, users should process data first, then generate plots
-        # For automation, we trigger both but plots may need data processing to complete first
-        session$sendInputMessage(plot_render_id, list(value = as.numeric(Sys.time()) + 0.1))
+        cat("DEBUG: Constructed plot_render_id:", plot_render_id, "\n")
+        
+        session$sendCustomMessage("triggerButton", list(
+          buttonId = plot_render_id,
+          timestamp = as.numeric(Sys.time()) + 0.1
+        ))
         
         processed_count <- processed_count + 1
         cat("Triggered plot generation for plotter:", plotter_id, "\n")
