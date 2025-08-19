@@ -6,12 +6,12 @@ ui_global <- function() {
 
 page_navbar(
   theme = bs_theme(bootswatch = "minty", version = 5),
-  title = "Data Plotter v1.1",
+  title = "Data Plotter v5",
   id = "mainmenu",
 
   # Input Data Management Tab
   nav_panel(
-    title = "Input Data",
+    title = "Input Files",
     icon = icon("upload"),
     layout_sidebar(
       sidebar = sidebar(
@@ -247,6 +247,43 @@ page_navbar(
     )
   ),
   
+  # Automation Menu
+  nav_menu(
+    title = "Automation",
+    icon = icon("play-circle"),
+    align = "right",
+    nav_item(
+      div(class = "px-3 py-2",
+        h6("Quick Actions", class = "text-muted mb-2"),
+        p(class = "text-muted small mb-3", "Fast way to regenerate processing and plots with new data"),
+        
+        actionButton(
+          "automation_upload_folder",
+          "Upload Folder",
+          icon = icon("folder-open"),
+          class = "btn-primary w-100 mb-2",
+          style = "font-weight: 500;"
+        ) |> tooltip("Trigger folder upload (same as Input Files tab)"),
+        
+        actionButton(
+          "automation_process_data",
+          "Process All Data",
+          icon = icon("cogs"),
+          class = "btn-warning w-100 mb-2",
+          style = "font-weight: 500;"
+        ) |> tooltip("Process all files in all importer tabs"),
+        
+        actionButton(
+          "automation_generate_plots",
+          "Generate All Plots",
+          icon = icon("chart-line"),
+          class = "btn-success w-100",
+          style = "font-weight: 500;"
+        ) |> tooltip("Process data and create plots in all plotter tabs")
+      )
+    )
+  ),
+  
   # Theme Toggle
   nav_item(
     input_dark_mode(mode = "light") |> 
@@ -308,6 +345,14 @@ page_navbar(
         '.module-container'           // custom module containers
       ];
       
+      // Also ensure plot output containers get proper height
+      const plotOutputSelectors = [
+        '.uiOutput',
+        '.shiny-html-output',
+        '.dataTables_wrapper',
+        '.plotly'
+      ];
+      
       moduleSelectors.forEach(selector => {
         const elements = document.querySelectorAll(selector);
         elements.forEach(el => {
@@ -319,6 +364,21 @@ page_navbar(
           }
         });
       });
+      
+      // Apply heights to plot output containers
+      plotOutputSelectors.forEach(selector => {
+        const elements = document.querySelectorAll(selector);
+        elements.forEach(el => {
+          // Only apply to elements within cards, not nested ones
+          if (el.closest('.card') && !el.closest('.tab-pane')) {
+            el.style.height = '100%';
+            el.style.minHeight = '400px';
+          }
+        });
+      });
+      
+      // Also resize plot outputs specifically
+      setTimeout(resizePlotOutputs, 100);
     }
     
     // Run on page load
@@ -337,6 +397,25 @@ page_navbar(
         clearTimeout(heightUpdateTimeout);
       }
       heightUpdateTimeout = setTimeout(updateModuleHeights, 150);
+    }
+    
+    // Function to resize plot outputs specifically
+    function resizePlotOutputs() {
+      const plotOutputs = document.querySelectorAll('.uiOutput, .shiny-html-output, .dataTables_wrapper');
+      plotOutputs.forEach(output => {
+        if (output.closest('.card')) {
+          const card = output.closest('.card');
+          const cardHeight = card.offsetHeight;
+          const headerHeight = card.querySelector('.card-header')?.offsetHeight || 0;
+          const bodyPadding = 20; // Approximate padding
+          const availableHeight = cardHeight - headerHeight - bodyPadding;
+          
+          if (availableHeight > 300) {
+            output.style.height = availableHeight + 'px';
+            output.style.minHeight = '400px';
+          }
+        }
+      });
     }
 
     const observer = new MutationObserver(function(mutations) {
@@ -362,6 +441,8 @@ page_navbar(
       
       if (shouldUpdate) {
         throttledUpdateModuleHeights();
+        // Also resize plot outputs after a short delay
+        setTimeout(resizePlotOutputs, 200);
       }
     });
     
@@ -391,6 +472,21 @@ page_navbar(
         checkbox.checked = data.select;
       });
     });
+    
+    // Handle automation: trigger folder upload
+    Shiny.addCustomMessageHandler('triggerFolderUpload', function(data) {
+      console.log('Automation: Triggering folder upload');
+      var folderInput = document.getElementById('global_folder_upload');
+      if (folderInput) {
+        // Programmatically click the folder input
+        folderInput.click();
+        console.log('Folder upload dialog opened via automation');
+      } else {
+        console.error('Folder upload input not found');
+      }
+    });
+    
+
     
     // Folder upload handler
     $(document).ready(function() {
@@ -583,11 +679,12 @@ page_navbar(
             var fileResults = [];
             var totalFiles = fileDataArray.length;
             var processedFiles = 0;
-            var batchSize = 5; // Send files in smaller batches to improve responsiveness
+            var batchSize = 2; // Small batch size for stable network performance
             var batchCounter = 0;
             
             function sendBatchToShiny(batch, isLastBatch) {
               console.log('Sending batch of', batch.length, 'files to Shiny (batch', batchCounter + 1, ')');
+              
               Shiny.setInputValue('global_folder_upload_files_batch', {
                 files: batch,
                 batchNumber: batchCounter,
@@ -624,6 +721,11 @@ page_navbar(
               if (fileResults.length >= batchSize) {
                 sendBatchToShiny(fileResults.slice(), false); // Send copy of current batch
                 fileResults = []; // Clear the batch
+                
+                // Add delay to prevent overwhelming the server
+                setTimeout(function() {
+                  // Continue processing after delay
+                }, 500); // 500ms delay between batches
               }
                
                processedFiles++;
@@ -910,16 +1012,34 @@ page_navbar(
     
     /* Ensure tables and plots fill their containers properly */
     .dataTables_wrapper {
-      height: calc(100% - 50px) !important;
-      max-height: calc(100% - 50px) !important;
+      height: 100% !important;
+      max-height: 100% !important;
       overflow: auto !important;
     }
     
     .plotly,
     .shiny-plot-output {
-      height: calc(100% - 100px) !important;
-      max-height: calc(100% - 100px) !important;
+      height: 100% !important;
+      max-height: 100% !important;
       overflow: auto !important;
+    }
+    
+    /* Ensure plot output containers fill their cards */
+    .card-body .uiOutput,
+    .card-body .shiny-html-output {
+      height: 100% !important;
+      min-height: 400px !important;
+    }
+    
+    /* Specific styling for DT tables to fill containers */
+    .dataTables_wrapper .dataTable {
+      width: 100% !important;
+    }
+    
+    /* Ensure ggplot outputs fill their containers */
+    .shiny-plot-output img {
+      max-width: 100% !important;
+      height: auto !important;
     }
     
     /* Ensure card bodies take full height */
@@ -927,6 +1047,43 @@ page_navbar(
       display: flex !important;
       flex-direction: column !important;
       height: 100% !important;
+    }
+    
+    /* Ensure plot output cards fill available space */
+    .card[full_screen='true'] {
+      height: 100% !important;
+      display: flex !important;
+      flex-direction: column !important;
+    }
+    
+    .card[full_screen='true'] .card-body {
+      flex: 1 !important;
+      min-height: 0 !important;
+    }
+    
+    /* Ensure uiOutput elements fill their containers */
+    .uiOutput {
+      height: 100% !important;
+      min-height: 400px !important;
+    }
+    
+    /* Specific styling for plotter output cards */
+    .module-container .card[full_screen='true'] {
+      height: 100% !important;
+      display: flex !important;
+      flex-direction: column !important;
+    }
+    
+    .module-container .card[full_screen='true'] .card-body {
+      flex: 1 !important;
+      min-height: 0 !important;
+      display: flex !important;
+      flex-direction: column !important;
+    }
+    
+    .module-container .card[full_screen='true'] .uiOutput {
+      flex: 1 !important;
+      min-height: 0 !important;
     }
     
     /* Ace editor specific styling for sidebars */
@@ -966,6 +1123,19 @@ page_navbar(
       :root {
         --module-height: calc(100vh - 90px); /* More space for mobile navbar */
       }
+    }
+    
+    /* Floating Create Plot button styling */
+    .module-container .btn-lg {
+      font-weight: 600;
+      border-radius: 25px;
+      padding: 12px 24px;
+      transition: all 0.3s ease;
+    }
+    
+    .module-container .btn-lg:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 12px rgba(0,0,0,0.3);
     }
   "))
 )

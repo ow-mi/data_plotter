@@ -337,6 +337,8 @@ server_global <- function(input, output, session) {
   # Global File Management for Input Data Tab
   global_files <- reactiveVal(list())
   
+
+  
   # File upload handler for individual files
   observeEvent(input$global_file_upload, {
     req(input$global_file_upload)
@@ -410,7 +412,7 @@ server_global <- function(input, output, session) {
     batch_files_processed <- 0
     batch_files_skipped <- 0
     
-    # Process each file in this batch
+    # Process each file in this batch (simplified, synchronous approach)
     for (file_info in batch_data$files) {
       file_name <- file_info$name
       data_url <- file_info$dataURL
@@ -466,14 +468,8 @@ server_global <- function(input, output, session) {
     
     global_files(current_files)
     
-    # Show progress notification
-    if (!is_last_batch) {
-      showNotification(
-        paste("Processed batch", batch_number + 1, "of", total_batches, 
-              "(", batch_files_processed, "files in this batch)"),
-        type = "message", duration = 2
-      )
-    } else {
+    # Show progress notification only for final batch
+    if (is_last_batch) {
       # Final batch - show summary
       folder_upload_state$upload_in_progress <- FALSE
       
@@ -488,6 +484,7 @@ server_global <- function(input, output, session) {
       cat("Folder upload complete:", folder_upload_state$files_processed, "processed,", 
           folder_upload_state$files_skipped, "skipped across", total_batches, "batches\n")
     }
+    # No intermediate progress notifications to reduce session overhead
     
     cat("Batch", batch_number + 1, "complete:", batch_files_processed, "processed,", 
         batch_files_skipped, "skipped\n")
@@ -799,6 +796,93 @@ server_global <- function(input, output, session) {
     showNotification(paste("Added plotter tab:", plot_id), type = "message")
   })
 
+  # --- Automation Functionality ---
+  
+  # Automation: Upload Folder
+  observeEvent(input$automation_upload_folder, {
+    showNotification("Opening folder upload dialog...", type = "message")
+    
+    # Send custom message to JavaScript to trigger folder upload
+    session$sendCustomMessage("triggerFolderUpload", list(
+      message = "Automation triggered folder upload"
+    ))
+  })
+  
+  # Automation: Process All Data
+  observeEvent(input$automation_process_data, {
+    current_importers <- importer_instances()
+    
+    if (length(current_importers) == 0) {
+      showNotification("No data import tabs found. Please create at least one import tab first.", type = "warning")
+      return()
+    }
+    
+    showNotification(paste("Starting batch processing for", length(current_importers), "importer(s)..."), type = "message")
+    
+    # Trigger data processing for each importer
+    processed_count <- 0
+    for (importer_id in names(current_importers)) {
+      tryCatch({
+        # Get the namespace function for this importer
+        ns_func <- NS(importer_id)
+        
+        # Trigger the combine_data button for this importer
+        # This simulates clicking the "Process All Files" button
+        updateActionButton(session, ns_func("combine_data"), 
+                          label = "Processing...", 
+                          icon = icon("spinner", class = "fa-spin"))
+        
+        # Send input event to trigger processing
+        session$sendInputMessage(ns_func("combine_data"), list(value = runif(1)))
+        
+        processed_count <- processed_count + 1
+        cat("Triggered processing for importer:", importer_id, "\n")
+      }, error = function(e) {
+        cat("Error triggering processing for importer", importer_id, ":", e$message, "\n")
+      })
+    }
+    
+    showNotification(paste("Triggered processing for", processed_count, "importer(s). Check individual tabs for progress."), 
+                     type = "success", duration = 5)
+  })
+  
+  # Automation: Generate All Plots
+  observeEvent(input$automation_generate_plots, {
+    current_plotters <- plotter_instances()
+    
+    if (length(current_plotters) == 0) {
+      showNotification("No plotter tabs found. Please create at least one plotter tab first.", type = "warning")
+      return()
+    }
+    
+    showNotification(paste("Starting batch plot generation for", length(current_plotters), "plotter(s)..."), type = "message")
+    
+    # Trigger data processing and plot generation for each plotter
+    processed_count <- 0
+    for (plotter_id in names(current_plotters)) {
+      tryCatch({
+        # Get the namespace function for this plotter
+        ns_func <- NS(plotter_id)
+        
+        # First trigger data processing for this plotter
+        session$sendInputMessage(ns_func("data_process_plot"), list(value = runif(1)))
+        
+        # Then trigger plot generation (with a small delay to allow data processing)
+        later::later(function() {
+          session$sendInputMessage(ns_func("plot_render"), list(value = runif(1)))
+        }, delay = 1) # 1 second delay
+        
+        processed_count <- processed_count + 1
+        cat("Triggered plot generation for plotter:", plotter_id, "\n")
+      }, error = function(e) {
+        cat("Error triggering plot generation for plotter", plotter_id, ":", e$message, "\n")
+      })
+    }
+    
+    showNotification(paste("Triggered plot generation for", processed_count, "plotter(s). Check individual tabs for progress."), 
+                     type = "success", duration = 5)
+  })
+  
   # Helper & Downloader R Code Execution
   ace_server_functions("helper_input")
   observeEvent(input$helper_input, {
