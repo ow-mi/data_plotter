@@ -866,7 +866,7 @@ server_global <- function(input, output, session) {
         cat("DEBUG: Processing plotter_id:", plotter_id, "\n")
         
         # First trigger data processing for this plotter
-        data_process_id <- paste0(plotter_id, "-data_process_plot")
+        data_process_id <- paste0(plotter_id, "-data_render")
         cat("DEBUG: Constructed data_process_id:", data_process_id, "\n")
         
         session$sendCustomMessage("triggerButton", list(
@@ -874,13 +874,15 @@ server_global <- function(input, output, session) {
           timestamp = as.numeric(Sys.time())
         ))
         
-        # Then trigger plot generation (with slight delay)
+        # Then trigger plot generation (with delay to allow data processing)
         plot_render_id <- paste0(plotter_id, "-plot_render")
         cat("DEBUG: Constructed plot_render_id:", plot_render_id, "\n")
         
-        session$sendCustomMessage("triggerButton", list(
+        # Use JavaScript setTimeout to delay plot generation
+        session$sendCustomMessage("triggerButtonDelayed", list(
           buttonId = plot_render_id,
-          timestamp = as.numeric(Sys.time()) + 0.1
+          delay = 2000, # 2 seconds delay
+          timestamp = as.numeric(Sys.time())
         ))
         
         processed_count <- processed_count + 1

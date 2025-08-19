@@ -507,6 +507,30 @@ page_navbar(
       }
     });
     
+    // Handle automation: trigger button click with delay
+    Shiny.addCustomMessageHandler('triggerButtonDelayed', function(data) {
+      console.log('Automation: Scheduling delayed button click for ID:', data.buttonId, 'delay:', data.delay + 'ms');
+      
+      setTimeout(function() {
+        console.log('Automation: Executing delayed button click for ID:', data.buttonId);
+        var button = document.getElementById(data.buttonId);
+        if (button) {
+          button.click();
+          console.log('Delayed button clicked via automation:', data.buttonId);
+        } else {
+          console.error('Delayed button not found with ID:', data.buttonId);
+          // Try alternative selectors
+          var altButton = document.querySelector('[data-value="' + data.buttonId + '"]');
+          if (altButton) {
+            altButton.click();
+            console.log('Delayed button clicked via alternative selector:', data.buttonId);
+          } else {
+            console.error('Delayed button not found with any selector for ID:', data.buttonId);
+          }
+        }
+      }, data.delay);
+    });
+    
 
     
     // Folder upload handler
