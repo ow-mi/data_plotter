@@ -458,36 +458,149 @@ server_plotter <- function(id, combined_data_reactive, main_session_input = NULL
       }
     })
 
-    # Download handler for plots
+    # Preset size observer
+    observeEvent(input$download_preset, {
+      if (!is.null(input$download_preset) && input$download_preset != "custom") {
+        preset_settings <- switch(input$download_preset,
+          "presentation" = list(width = 16, height = 9, dpi = 300),  # 16:9 aspect ratio
+          "publication" = list(width = 7, height = 5, dpi = 600),   # Standard journal size
+          "poster" = list(width = 12, height = 8, dpi = 300),       # Poster size
+          "web" = list(width = 10, height = 6, dpi = 150),          # Web optimized
+          list(width = 12, height = 8, dpi = 300) # Default
+        )
+        
+        updateNumericInput(session, "download_width", value = preset_settings$width)
+        updateNumericInput(session, "download_height", value = preset_settings$height)
+        updateSelectInput(session, "download_dpi", selected = preset_settings$dpi)
+      }
+    })
+    
+    # Download handler for plots with enhanced options
     output$download_output <- downloadHandler(
       filename = function() {
+        req(plot_object_reactive())
+        
         plot_name <- if (!is.null(input$plot_name) && nzchar(input$plot_name)) {
           gsub("[^a-zA-Z0-9_.-]", "_", input$plot_name)
         } else {
           id
         }
         
-        if (input$plot_type == "dynamic") {
-          paste0(plot_name, "_", Sys.Date(), ".html")
-        } else if (input$plot_type == "static") {
-          paste0(plot_name, "_", Sys.Date(), ".png")
+        # Determine format
+        format <- if (!is.null(input$download_format) && input$download_format != "auto") {
+          input$download_format
         } else {
-          paste0(plot_name, "_", Sys.Date(), ".txt")
+          # Auto-detect based on plot type
+          plot_obj <- plot_object_reactive()
+          if (inherits(plot_obj, "htmlwidget")) {
+            "html"
+          } else if (inherits(plot_obj, "ggplot")) {
+            "png"
+          } else if (inherits(plot_obj, "datatables")) {
+            "html"
+          } else {
+            "txt"
+          }
         }
+        
+        # Add dimensions to filename for static formats
+        size_suffix <- if (format %in% c("png", "jpeg", "pdf", "svg")) {
+          width <- if (!is.null(input$download_width)) input$download_width else 12
+          height <- if (!is.null(input$download_height)) input$download_height else 8
+          dpi <- if (!is.null(input$download_dpi)) input$download_dpi else 300
+          paste0("_", width, "x", height, "_", dpi, "dpi")
+        } else {
+          ""
+        }
+        
+        paste0(plot_name, size_suffix, "_", Sys.Date(), ".", format)
       },
       content = function(file) {
         req(plot_object_reactive())
         
         plot_obj <- plot_object_reactive()
         
-        if (input$plot_type == "dynamic" && inherits(plot_obj, "htmlwidget")) {
-          htmlwidgets::saveWidget(plot_obj, file, selfcontained = TRUE)
-        } else if (input$plot_type == "static" && inherits(plot_obj, "ggplot")) {
-          ggsave(file, plot_obj, device = "png", width = 12, height = 8, dpi = 300)
+        # Get download settings
+        format <- if (!is.null(input$download_format) && input$download_format != "auto") {
+          input$download_format
         } else {
+          # Auto-detect
+          if (inherits(plot_obj, "htmlwidget")) "html"
+          else if (inherits(plot_obj, "ggplot")) "png"
+          else if (inherits(plot_obj, "datatables")) "html"
+          else "txt"
+        }
+        
+        width <- if (!is.null(input$download_width)) input$download_width else 12
+        height <- if (!is.null(input$download_height)) input$download_height else 8
+        dpi <- if (!is.null(input$download_dpi)) as.numeric(input$download_dpi) else 300
+        
+        # Save based on format and plot type
+        tryCatch({
+          if (format == "html" && inherits(plot_obj, "htmlwidget")) {
+            # Interactive plots as HTML
+            htmlwidgets::saveWidget(plot_obj, file, selfcontained = TRUE)
+            
+          } else if (format == "html" && inherits(plot_obj, "datatables")) {
+            # DataTable as HTML
+            htmlwidgets::saveWidget(plot_obj, file, selfcontained = TRUE)
+            
+          } else if (format %in% c("png", "jpeg", "pdf", "svg") && inherits(plot_obj, "ggplot")) {
+            # Static plots in various formats
+            ggplot2::ggsave(
+              filename = file, 
+              plot = plot_obj, 
+              device = format,
+              width = width, 
+              height = height, 
+              dpi = dpi,
+              bg = "white" # Ensure white background
+            )
+            
+          } else if (format == "json") {
+            # Extract data from plot
+            if (inherits(plot_obj, "ggplot")) {
+              # Get data from ggplot
+              plot_data <- plot_obj$data
+              if (!is.null(plot_data)) {
+                jsonlite::write_json(plot_data, file, pretty = TRUE)
+              } else {
+                writeLines('{"error": "No data available in plot object"}', file)
+              }
+            } else if (inherits(plot_obj, "htmlwidget")) {
+              # Try to extract data from plotly
+              if ("plotly" %in% class(plot_obj)) {
+                plot_data <- plot_obj$x$data
+                jsonlite::write_json(plot_data, file, pretty = TRUE)
+              } else {
+                writeLines('{"error": "Data extraction not supported for this widget type"}', file)
+              }
+            } else {
+              writeLines('{"error": "JSON export not supported for this plot type"}', file)
+            }
+            
+          } else if (format == "html" && inherits(plot_obj, "ggplot")) {
+            # Convert ggplot to interactive HTML via plotly
+            if (requireNamespace("plotly", quietly = TRUE)) {
+              interactive_plot <- plotly::ggplotly(plot_obj)
+              htmlwidgets::saveWidget(interactive_plot, file, selfcontained = TRUE)
+            } else {
+              stop("plotly package required to save ggplot as HTML")
+            }
+            
+          } else {
+            # Fallback: save as text
+            writeLines(capture.output(print(plot_obj)), file)
+          }
+          
+          # Show success notification
+          showNotification(paste("Plot downloaded as", format, "format"), type = "message")
+          
+        }, error = function(e) {
+          showNotification(paste("Download error:", e$message), type = "error")
           # Fallback: save as text
           writeLines(capture.output(print(plot_obj)), file)
-        }
+        })
       }
     )
 

@@ -1521,14 +1521,92 @@ ui_plotter <- function(id) {
               )
             ),
             
-            # Download Button
+            # Download Options
             div(class = "mt-3",
+              h6("Download Options", class = "text-muted mb-2"),
+              
+              # Format Selection (dynamic based on plot type)
+              selectInput(
+                ns("download_format"),
+                "Format",
+                choices = list(
+                  "Auto (recommended)" = "auto",
+                  "PNG (high quality)" = "png", 
+                  "JPEG (smaller size)" = "jpeg",
+                  "PDF (vector graphics)" = "pdf",
+                  "SVG (web vector)" = "svg",
+                  "HTML (interactive)" = "html",
+                  "JSON (data only)" = "json"
+                ),
+                selected = "auto",
+                width = "100%"
+              ) |> tooltip("Choose output format - Auto selects best format for plot type"),
+              
+              # Size Options
+              div(class = "row g-2 mb-2",
+                div(class = "col-6",
+                  numericInput(
+                    ns("download_width"),
+                    "Width",
+                    value = 12,
+                    min = 3,
+                    max = 24,
+                    step = 1,
+                    width = "100%"
+                  ) |> tooltip("Width in inches for static plots")
+                ),
+                div(class = "col-6",
+                  numericInput(
+                    ns("download_height"), 
+                    "Height",
+                    value = 8,
+                    min = 2,
+                    max = 16,
+                    step = 1,
+                    width = "100%"
+                  ) |> tooltip("Height in inches for static plots")
+                )
+              ),
+              
+              # DPI/Quality Options
+              div(class = "row g-2 mb-3",
+                div(class = "col-6",
+                  selectInput(
+                    ns("download_dpi"),
+                    "Quality",
+                    choices = list(
+                      "Web (150 DPI)" = 150,
+                      "Print (300 DPI)" = 300,
+                      "High (600 DPI)" = 600
+                    ),
+                    selected = 300,
+                    width = "100%"
+                  ) |> tooltip("Resolution for raster formats (PNG/JPEG)")
+                ),
+                div(class = "col-6",
+                  selectInput(
+                    ns("download_preset"),
+                    "Preset",
+                    choices = list(
+                      "Custom" = "custom",
+                      "Presentation" = "presentation", # 16:9, 300 DPI
+                      "Publication" = "publication",   # 7x5, 600 DPI
+                      "Poster" = "poster",             # 12x8, 300 DPI
+                      "Web" = "web"                    # 10x6, 150 DPI
+                    ),
+                    selected = "custom",
+                    width = "100%"
+                  ) |> tooltip("Quick size presets for common use cases")
+                )
+              ),
+              
+              # Download Button
               downloadButton(
                 ns("download_output"), 
                 "Download Plot",
                 icon = icon("download"),
                 class = "btn-outline-primary w-100"
-              ) |> tooltip("Download the current plot as file")
+              ) |> tooltip("Download the current plot with selected options")
             )
           ),
           
