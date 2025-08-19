@@ -974,9 +974,13 @@ server_global <- function(input, output, session) {
       cat("Exclude filter:", exclude_filter, "\n")
       
       tryCatch({
-        # Update the combined data filters
-        updateTextInput(session, "combiner-combiner_filter_in_files", value = include_filter)
-        updateTextInput(session, "combiner-combiner_filter_out_files", value = exclude_filter)
+        # Update the combined data filters (need to remove the local function approach)
+        # Instead send the filter updates to JavaScript
+        session$sendCustomMessage("updateCombinerFilters", list(
+          includeFilter = include_filter,
+          excludeFilter = exclude_filter,
+          runNumber = run_number
+        ))
         
         # Small delay to allow filter updates to process
         Sys.sleep(0.5)
@@ -1016,6 +1020,22 @@ server_global <- function(input, output, session) {
       originalInclude = original_include %||% "",
       originalExclude = original_exclude %||% "",
       timestamp = as.numeric(Sys.time())
+    ))
+  })
+  
+  # Handle filter updates from batch runs
+  observeEvent(input$updateFiltersForBatch, {
+    req(input$updateFiltersForBatch)
+    filter_data <- input$updateFiltersForBatch
+    
+    cat("Updating combiner filters for batch run", filter_data$runNumber, "\n")
+    cat("Include:", filter_data$includeFilter, "Exclude:", filter_data$excludeFilter, "\n")
+    
+    # Send the actual filter update to the combiner inputs
+    session$sendCustomMessage("updateCombinerFilters", list(
+      includeFilter = filter_data$includeFilter,
+      excludeFilter = filter_data$excludeFilter,
+      runNumber = filter_data$runNumber
     ))
   })
   

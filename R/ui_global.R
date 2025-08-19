@@ -618,6 +618,43 @@ page_navbar(
       }, data.delay);
     });
     
+    // Handle automation: update combiner filters
+    Shiny.addCustomMessageHandler('updateCombinerFilters', function(data) {
+      console.log('Automation: Updating combiner filters for run', data.runNumber);
+      console.log('Include:', data.includeFilter, 'Exclude:', data.excludeFilter);
+      
+      // Find and update the combiner filter inputs
+      var includeInput = document.getElementById('combiner-combiner_filter_in_files');
+      var excludeInput = document.getElementById('combiner-combiner_filter_out_files');
+      
+      if (includeInput) {
+        includeInput.value = data.includeFilter;
+        $(includeInput).trigger('change'); // Trigger Shiny update
+        console.log('Updated include filter to:', data.includeFilter);
+      } else {
+        console.error('Include filter input not found: combiner-combiner_filter_in_files');
+      }
+      
+      if (excludeInput) {
+        excludeInput.value = data.excludeFilter;
+        $(excludeInput).trigger('change'); // Trigger Shiny update
+        console.log('Updated exclude filter to:', data.excludeFilter);
+      } else {
+        console.error('Exclude filter input not found: combiner-combiner_filter_out_files');
+      }
+      
+      // Apply the filters by clicking the apply button
+      setTimeout(function() {
+        var applyButton = document.getElementById('combiner-apply_combiner_filters');
+        if (applyButton) {
+          applyButton.click();
+          console.log('Applied combiner filters for run', data.runNumber);
+        } else {
+          console.error('Apply filters button not found: combiner-apply_combiner_filters');
+        }
+      }, 200); // Small delay to ensure input values are updated
+    });
+
     // Handle automation: start batch runs with JavaScript scheduling
     Shiny.addCustomMessageHandler('startBatchRuns', function(data) {
       console.log('Automation: Starting batch runs with', data.maxFilters, 'filter combinations');
@@ -628,9 +665,26 @@ page_navbar(
         if (runIndex >= data.maxFilters) {
           // All runs complete - restore original filters
           setTimeout(function() {
-            Shiny.setInputValue('combiner-combiner_filter_in_files', data.originalInclude);
-            Shiny.setInputValue('combiner-combiner_filter_out_files', data.originalExclude);
-            console.log('All batch runs completed. Original filters restored.');
+            var includeInput = document.getElementById('combiner-combiner_filter_in_files');
+            var excludeInput = document.getElementById('combiner-combiner_filter_out_files');
+            
+            if (includeInput) {
+              includeInput.value = data.originalInclude;
+              $(includeInput).trigger('change');
+            }
+            if (excludeInput) {
+              excludeInput.value = data.originalExclude;  
+              $(excludeInput).trigger('change');
+            }
+            
+            // Apply the restored filters
+            setTimeout(function() {
+              var applyButton = document.getElementById('combiner-apply_combiner_filters');
+              if (applyButton) {
+                applyButton.click();
+                console.log('All batch runs completed. Original filters restored and applied.');
+              }
+            }, 200);
           }, 5000);
           return;
         }
@@ -641,9 +695,13 @@ page_navbar(
         
         console.log('Executing batch run', runNumber, 'Include:', includeFilter, 'Exclude:', excludeFilter);
         
-        // Apply filters
-        Shiny.setInputValue('combiner-combiner_filter_in_files', includeFilter);
-        Shiny.setInputValue('combiner-combiner_filter_out_files', excludeFilter);
+        // Apply filters using updateCombinerFilters message
+        Shiny.setInputValue('updateFiltersForBatch', {
+          includeFilter: includeFilter,
+          excludeFilter: excludeFilter,
+          runNumber: runNumber,
+          timestamp: Date.now()
+        });
         
         // Wait for filters to apply, then generate plots
         setTimeout(function() {
@@ -660,7 +718,7 @@ page_navbar(
             }, 3000); // 3 second delay between runs
             
           }, 5000); // 5 seconds for plot generation
-        }, 1000); // 1 second for filter application
+        }, 1500); // 1.5 seconds for filter application and processing
       }
       
       // Start the first batch run
