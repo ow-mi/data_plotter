@@ -896,6 +896,46 @@ server_global <- function(input, output, session) {
                      type = "message", duration = 5)
   })
   
+  # Automation: Download All Plots
+  observeEvent(input$automation_download_plots, {
+    current_plotters <- plotter_instances()
+    
+    if (length(current_plotters) == 0) {
+      showNotification("No plotter tabs found. Please create at least one plotter tab first.", type = "warning")
+      return()
+    }
+    
+    showNotification(paste("Starting batch download for", length(current_plotters), "plotter(s)..."), type = "message")
+    
+    # Trigger downloads for each plotter
+    downloaded_count <- 0
+    for (plotter_id in names(current_plotters)) {
+      tryCatch({
+        # Debug: Print plotter information
+        cat("DEBUG: Downloading from plotter_id:", plotter_id, "\n")
+        
+        # Trigger download button for this plotter
+        download_id <- paste0(plotter_id, "-download_output")
+        cat("DEBUG: Constructed download_id:", download_id, "\n")
+        
+        # Use JavaScript to programmatically click the download button
+        session$sendCustomMessage("triggerDownload", list(
+          buttonId = download_id,
+          plotterName = plotter_id,
+          timestamp = as.numeric(Sys.time())
+        ))
+        
+        downloaded_count <- downloaded_count + 1
+        cat("Triggered download for plotter:", plotter_id, "\n")
+      }, error = function(e) {
+        cat("Error triggering download for plotter", plotter_id, ":", e$message, "\n")
+      })
+    }
+    
+    showNotification(paste("Triggered downloads for", downloaded_count, "plotter(s). Check your downloads folder."), 
+                     type = "message", duration = 8)
+  })
+  
   # Helper & Downloader R Code Execution
   ace_server_functions("helper_input")
   observeEvent(input$helper_input, {

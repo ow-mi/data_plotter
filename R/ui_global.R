@@ -277,9 +277,17 @@ page_navbar(
           "automation_generate_plots",
           "Generate All Plots",
           icon = icon("chart-line"),
-          class = "btn-success w-100",
+          class = "btn-success w-100 mb-2",
           style = "font-weight: 500;"
-        ) |> tooltip("Process data and create plots in all plotter tabs")
+        ) |> tooltip("Process data and create plots in all plotter tabs"),
+        
+        actionButton(
+          "automation_download_plots",
+          "Download All Plots",
+          icon = icon("download"),
+          class = "btn-info w-100",
+          style = "font-weight: 500;"
+        ) |> tooltip("Download plots from all plotter tabs with their current settings")
       )
     )
   ),
@@ -529,6 +537,33 @@ page_navbar(
           }
         }
       }, data.delay);
+    });
+    
+    // Handle automation: trigger download
+    Shiny.addCustomMessageHandler('triggerDownload', function(data) {
+      console.log('Automation: Triggering download for plotter:', data.plotterName, 'button ID:', data.buttonId);
+      
+      // Add a small delay to spread out downloads and prevent browser blocking
+      setTimeout(function() {
+        var downloadButton = document.getElementById(data.buttonId);
+        if (downloadButton) {
+          downloadButton.click();
+          console.log('Download triggered via automation for:', data.plotterName);
+        } else {
+          console.error('Download button not found with ID:', data.buttonId);
+          // Try alternative approach - look for download buttons in the plotter
+          var plotterSection = document.querySelector('[id*="' + data.plotterName + '"]');
+          if (plotterSection) {
+            var downloadBtn = plotterSection.querySelector('a[download], .btn[id*="download"]');
+            if (downloadBtn) {
+              downloadBtn.click();
+              console.log('Download triggered via alternative selector for:', data.plotterName);
+            } else {
+              console.error('No download button found in plotter section for:', data.plotterName);
+            }
+          }
+        }
+      }, Math.random() * 2000 + 500); // Random delay between 0.5-2.5 seconds to prevent browser blocking
     });
     
 
