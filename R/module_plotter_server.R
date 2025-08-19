@@ -480,11 +480,28 @@ server_plotter <- function(id, combined_data_reactive, main_session_input = NULL
       filename = function() {
         req(plot_object_reactive())
         
-        plot_name <- if (!is.null(input$plot_name) && nzchar(input$plot_name)) {
-          gsub("[^a-zA-Z0-9_.-]", "_", input$plot_name)
+        # Build filename from title + caption + timestamp
+        title_part <- if (!is.null(input$plot_title) && nzchar(input$plot_title)) {
+          gsub("[^a-zA-Z0-9_.-]", "_", substr(input$plot_title, 1, 30)) # Limit length
+        } else if (!is.null(input$plot_name) && nzchar(input$plot_name)) {
+          gsub("[^a-zA-Z0-9_.-]", "_", substr(input$plot_name, 1, 30))
         } else {
           id
         }
+        
+        caption_part <- if (!is.null(input$plot_caption) && nzchar(input$plot_caption)) {
+          # Extract first few words of caption, clean them
+          caption_clean <- gsub("[^a-zA-Z0-9 ]", "", input$plot_caption)
+          caption_words <- strsplit(caption_clean, "\\s+")[[1]]
+          caption_short <- paste(head(caption_words, 3), collapse = "_")
+          if (nzchar(caption_short)) paste0("_", caption_short) else ""
+        } else {
+          ""
+        }
+        
+        timestamp_part <- format(Sys.time(), "_%Y%m%d_%H%M%S")
+        
+        plot_name <- paste0(title_part, caption_part, timestamp_part)
         
         # Determine format
         format <- if (!is.null(input$download_format) && input$download_format != "auto") {

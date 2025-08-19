@@ -936,6 +936,89 @@ server_global <- function(input, output, session) {
                      type = "message", duration = 8)
   })
   
+  # Automation: Run All Batches
+  observeEvent(input$automation_run_batches, {
+    # Validate inputs
+    if (is.null(input$automation_include_runs) || !nzchar(trimws(input$automation_include_runs))) {
+      showNotification("Please provide include filters for batch runs (semicolon-separated)", type = "warning")
+      return()
+    }
+    
+    # Parse the filter lists
+    include_filters <- trimws(strsplit(input$automation_include_runs, ";")[[1]])
+    exclude_filters <- if (!is.null(input$automation_exclude_runs) && nzchar(trimws(input$automation_exclude_runs))) {
+      trimws(strsplit(input$automation_exclude_runs, ";")[[1]])
+    } else {
+      rep("", length(include_filters)) # Empty exclude filters
+    }
+    
+    # Ensure we have matching numbers of filters
+    max_filters <- max(length(include_filters), length(exclude_filters))
+    if (length(include_filters) < max_filters) {
+      include_filters <- c(include_filters, rep("", max_filters - length(include_filters)))
+    }
+    if (length(exclude_filters) < max_filters) {
+      exclude_filters <- c(exclude_filters, rep("", max_filters - length(exclude_filters)))
+    }
+    
+    showNotification(paste("Starting batch runs with", max_filters, "filter combination(s)..."), type = "message")
+    
+    # Store original filter values to restore later
+    original_include <- isolate(input[["combiner-combiner_filter_in_files"]])
+    original_exclude <- isolate(input[["combiner-combiner_filter_out_files"]])
+    
+    # Function to execute a single batch run
+    execute_batch_run <- function(run_number, include_filter, exclude_filter) {
+      cat("=== BATCH RUN", run_number, "===\n")
+      cat("Include filter:", include_filter, "\n")
+      cat("Exclude filter:", exclude_filter, "\n")
+      
+      tryCatch({
+        # Update the combined data filters
+        updateTextInput(session, "combiner-combiner_filter_in_files", value = include_filter)
+        updateTextInput(session, "combiner-combiner_filter_out_files", value = exclude_filter)
+        
+        # Small delay to allow filter updates to process
+        Sys.sleep(0.5)
+        
+        showNotification(paste("Batch", run_number, "- Applied filters. Generating plots..."), type = "message")
+        
+        # Trigger generate all plots
+        session$sendCustomMessage("triggerBatchRun", list(
+          runNumber = run_number,
+          includeFilter = include_filter,
+          excludeFilter = exclude_filter,
+          phase = "generate",
+          timestamp = as.numeric(Sys.time())
+        ))
+        
+        # Schedule download after plot generation
+        session$sendCustomMessage("triggerBatchRunDelayed", list(
+          runNumber = run_number,
+          includeFilter = include_filter,
+          excludeFilter = exclude_filter,
+          phase = "download",
+          delay = 5000, # 5 second delay
+          timestamp = as.numeric(Sys.time())
+        ))
+        
+      }, error = function(e) {
+        cat("Error in batch run", run_number, ":", e$message, "\n")
+        showNotification(paste("Error in batch", run_number, ":", e$message), type = "error")
+      })
+    }
+    
+    # Execute batch runs using JavaScript scheduling
+    session$sendCustomMessage("startBatchRuns", list(
+      includeFilters = include_filters,
+      excludeFilters = exclude_filters,
+      maxFilters = max_filters,
+      originalInclude = original_include %||% "",
+      originalExclude = original_exclude %||% "",
+      timestamp = as.numeric(Sys.time())
+    ))
+  })
+  
   # Helper & Downloader R Code Execution
   ace_server_functions("helper_input")
   observeEvent(input$helper_input, {

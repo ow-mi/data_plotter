@@ -285,9 +285,35 @@ page_navbar(
           "automation_download_plots",
           "Download All Plots",
           icon = icon("download"),
-          class = "btn-info w-100",
+          class = "btn-info w-100 mb-3",
           style = "font-weight: 500;"
-        ) |> tooltip("Download plots from all plotter tabs with their current settings")
+        ) |> tooltip("Download plots from all plotter tabs with their current settings"),
+        
+        # Runs Section
+        h6("Batch Runs", class = "text-muted mb-2 mt-2"),
+        p(class = "text-muted small mb-2", "Run multiple filter combinations automatically"),
+        
+        textInput(
+          "automation_include_runs",
+          "Include Files (runs)",
+          placeholder = "run1_files;run2_files;run3_files",
+          width = "100%"
+        ) |> tooltip("Semicolon-separated list of include filters. Each will be applied sequentially with plot generation and download."),
+        
+        textInput(
+          "automation_exclude_runs", 
+          "Exclude Files (runs)",
+          placeholder = "debug;test;calibration",
+          width = "100%"
+        ) |> tooltip("Semicolon-separated list of exclude filters to apply with each include filter."),
+        
+        actionButton(
+          "automation_run_batches",
+          "Run All Batches",
+          icon = icon("play-circle"),
+          class = "btn-danger w-100",
+          style = "font-weight: 500;"
+        ) |> tooltip("Execute multiple filter combinations: apply filter → generate plots → download → repeat")
       )
     )
   ),
@@ -564,6 +590,81 @@ page_navbar(
           }
         }
       }, Math.random() * 2000 + 500); // Random delay between 0.5-2.5 seconds to prevent browser blocking
+    });
+    
+    // Handle automation: batch runs
+    Shiny.addCustomMessageHandler('triggerBatchRun', function(data) {
+      console.log('Automation: Batch run', data.runNumber, 'phase:', data.phase);
+      
+      if (data.phase === 'generate') {
+        // Trigger generate all plots
+        Shiny.setInputValue('automation_generate_plots', Math.random());
+      } else if (data.phase === 'download') {
+        // Trigger download all plots  
+        Shiny.setInputValue('automation_download_plots', Math.random());
+        console.log('Batch run', data.runNumber, '- plots generated and downloaded');
+      }
+    });
+    
+    // Handle automation: delayed batch run
+    Shiny.addCustomMessageHandler('triggerBatchRunDelayed', function(data) {
+      console.log('Automation: Scheduling delayed batch run', data.runNumber, 'phase:', data.phase, 'delay:', data.delay + 'ms');
+      
+      setTimeout(function() {
+        if (data.phase === 'download') {
+          Shiny.setInputValue('automation_download_plots', Math.random());
+          console.log('Batch run', data.runNumber, '- delayed download triggered');
+        }
+      }, data.delay);
+    });
+    
+    // Handle automation: start batch runs with JavaScript scheduling
+    Shiny.addCustomMessageHandler('startBatchRuns', function(data) {
+      console.log('Automation: Starting batch runs with', data.maxFilters, 'filter combinations');
+      
+      var currentRun = 0;
+      
+      function executeBatchRun(runIndex) {
+        if (runIndex >= data.maxFilters) {
+          // All runs complete - restore original filters
+          setTimeout(function() {
+            Shiny.setInputValue('combiner-combiner_filter_in_files', data.originalInclude);
+            Shiny.setInputValue('combiner-combiner_filter_out_files', data.originalExclude);
+            console.log('All batch runs completed. Original filters restored.');
+          }, 5000);
+          return;
+        }
+        
+        var includeFilter = data.includeFilters[runIndex];
+        var excludeFilter = data.excludeFilters[runIndex] || '';
+        var runNumber = runIndex + 1;
+        
+        console.log('Executing batch run', runNumber, 'Include:', includeFilter, 'Exclude:', excludeFilter);
+        
+        // Apply filters
+        Shiny.setInputValue('combiner-combiner_filter_in_files', includeFilter);
+        Shiny.setInputValue('combiner-combiner_filter_out_files', excludeFilter);
+        
+        // Wait for filters to apply, then generate plots
+        setTimeout(function() {
+          Shiny.setInputValue('automation_generate_plots', Math.random());
+          
+          // Wait for plots to generate, then download
+          setTimeout(function() {
+            Shiny.setInputValue('automation_download_plots', Math.random());
+            console.log('Batch run', runNumber, 'completed');
+            
+            // Schedule next run
+            setTimeout(function() {
+              executeBatchRun(runIndex + 1);
+            }, 3000); // 3 second delay between runs
+            
+          }, 5000); // 5 seconds for plot generation
+        }, 1000); // 1 second for filter application
+      }
+      
+      // Start the first batch run
+      executeBatchRun(0);
     });
     
 
