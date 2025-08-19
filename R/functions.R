@@ -103,6 +103,98 @@ rname <- function(df, col_to_effect, input_text) {
   df
 }
 
+# Extract values from filename using regex patterns
+extract_from_filename <- function(df, filename_col = "file_name_source", extractions_df) {
+  if (!is.data.table(df)) setDT(df)
+  
+  # Check if filename column exists
+  if (!filename_col %in% names(df)) {
+    warning(paste("Column", filename_col, "not found for filename extraction."))
+    return(df)
+  }
+  
+  # If no extractions defined, return original data
+  if (is.null(extractions_df) || nrow(extractions_df) == 0) {
+    return(df)
+  }
+  
+  # Apply each extraction rule
+  for (i in 1:nrow(extractions_df)) {
+    column_name <- extractions_df$column_name[i]
+    pattern <- extractions_df$pattern[i]
+    
+    tryCatch({
+      # Check if pattern has capturing groups (parentheses)
+      if (grepl("\\(.*\\)", pattern)) {
+        # Use str_match to extract capturing groups
+        matches <- str_match(df[[filename_col]], pattern)
+        # If there are capturing groups, use the first one, otherwise use the full match
+        if (ncol(matches) > 1) {
+          df[, (column_name) := matches[, 2]]  # Second column is first capturing group
+        } else {
+          df[, (column_name) := matches[, 1]]  # Full match if no capturing groups
+        }
+      } else {
+        # Use str_extract for patterns without capturing groups
+        df[, (column_name) := str_extract(get(filename_col), pattern)]
+      }
+    }, error = function(e) {
+      warning(paste("Error applying pattern", pattern, "for column", column_name, ":", e$message))
+    })
+  }
+  
+  df
+}
+
+# Evaluate R code within strings for dynamic text generation
+string_eval <- function(text, env = parent.frame()) {
+  if (is.null(text) || is.na(text) || text == "") {
+    return(text)
+  }
+  
+  # Find patterns like "code" or 'code' (quoted R code to evaluate)
+  pattern <- '["\'](.*?)["\']'
+  
+  # Extract all quoted sections
+  matches <- gregexpr(pattern, text, perl = TRUE)
+  match_data <- regmatches(text, matches)[[1]]
+  
+  if (length(match_data) == 0) {
+    # No quoted code found, return original text
+    return(text)
+  }
+  
+  # Process each quoted section
+  result_text <- text
+  for (quoted_code in match_data) {
+    # Remove quotes to get the actual code
+    code <- gsub('^["\']|["\']$', '', quoted_code)
+    
+    tryCatch({
+      # Evaluate the code in the provided environment
+      eval_result <- eval(parse(text = code), envir = env)
+      
+      # Convert result to character and handle vectors
+      if (is.vector(eval_result) && length(eval_result) > 1) {
+        # Join multiple values with commas
+        result_str <- paste(eval_result, collapse = ", ")
+      } else {
+        result_str <- as.character(eval_result)
+      }
+      
+      # Replace the quoted code with the result in the text
+      result_text <- gsub(pattern = fixed(quoted_code), replacement = result_str, x = result_text, fixed = TRUE)
+      
+    }, error = function(e) {
+      # If evaluation fails, replace with error message
+      error_msg <- paste0("[Error: ", e$message, "]")
+      result_text <<- gsub(pattern = fixed(quoted_code), replacement = error_msg, x = result_text, fixed = TRUE)
+    })
+  }
+  
+  return(result_text)
+}
+
 
 # --- Ace Editor Setup ---
 

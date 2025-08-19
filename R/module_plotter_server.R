@@ -63,6 +63,9 @@ server_plotter <- function(id, combined_data_reactive, main_session_input = NULL
     ace_server_functions(ns("r_code_plot_table"))
     ace_server_functions(ns("r_code_plot_final"))
 
+    # --- Plot Rendering Logic ---
+    plot_object_reactive <- reactiveVal(NULL)
+
     # Update source filter checkboxes when combined data changes
     observe({
       req(combined_data_reactive())
@@ -215,13 +218,30 @@ server_plotter <- function(id, combined_data_reactive, main_session_input = NULL
     plot_object_reactive <- reactiveVal(NULL)
     
     observeEvent(input$plot_render, {
-      spsComps::shinyCatch({
+      cat("=== PLOT RENDER CLICKED ===\n")
+      cat("Module ID:", id, "\n")
+      
+      # Use spsComps::shinyCatch for Shiny-specific error handling
+      spsComps::shinyCatch(
+        tryCatch({
         req(df_plot_data_processed()) # Requires data processed for *this* plot
         
-        # Environment for plot generation
-        env <- new.env(parent = .GlobalEnv)
-        env$df <- df_plot_data_processed()
-        env$input <- input # Expose module's input for titles, labels, etc.
+        # Use withProgress for built-in progress indicator
+        withProgress(message = 'Generating plot...', value = 0, {
+          
+
+          
+          incProgress(0.1, detail = "Setting up environment...")
+          
+          # Environment for plot generation
+          env <- new.env(parent = .GlobalEnv)
+          env$df <- df_plot_data_processed()
+          env$input <- input # Expose module's input for titles, labels, etc.
+          
+          # Add simple progress function to environment
+          env$incProgress <- function(amount = 0, detail = NULL) {
+            incProgress(amount, detail = detail)
+          }
         
         # Check if ggplot2 can load properly
         ggplot2_available <- tryCatch({
@@ -333,6 +353,7 @@ server_plotter <- function(id, combined_data_reactive, main_session_input = NULL
         env$get_plotter_code <- get_plotter_code
         env$get_importer_code <- get_importer_code
         env$main_session_input <- main_session_input
+        env$string_eval <- string_eval  # For dynamic string evaluation in captions
         
         # Add modular template variables for the combined static template to use
         env$ggplot_data_processing_template <- ggplot_data_processing_template
@@ -363,29 +384,46 @@ server_plotter <- function(id, combined_data_reactive, main_session_input = NULL
           env$ggplot_faceting_final_template <- r_code_plot_faceting_final_reactive()
         }
         
-        # Combine all the code sections
-        combined_code <- paste(
-          "# Text code section:",
-          paste("text_code <- '", gsub("'", "\\\\'", r_code_plot_text_reactive()), "'", sep=""),
-          "",
-          "# Static code section:",
-          paste("static_code <- '", gsub("'", "\\\\'", r_code_plot_static_reactive()), "'", sep=""),
-          "",
-          "# Interactive code section:",
-          paste("interactive_code <- '", gsub("'", "\\\\'", r_code_plot_interactive_reactive()), "'", sep=""),
-          "",
-          "# Table code section:",
-          paste("table_code <- '", gsub("'", "\\\\'", r_code_plot_table_reactive()), "'", sep=""),
-          "",
-          "# Final conditional code:",
-          r_code_plot_final_reactive(),
-          sep = "\n"
-        )
-        
-        plot_result <- eval(parse(text = combined_code), envir = env)
-        plot_object_reactive(plot_result)
-        showNotification("Plot generated successfully.", type = "message")
+          incProgress(0.2, detail = "Preparing plot templates...")
+          
+
+          
+          # Combine all the code sections
+          combined_code <- paste(
+            "# Text code section:",
+            paste("text_code <- '", gsub("'", "\\\\'", r_code_plot_text_reactive()), "'", sep=""),
+            "",
+            "# Static code section:",
+            paste("static_code <- '", gsub("'", "\\\\'", r_code_plot_static_reactive()), "'", sep=""),
+            "",
+            "# Interactive code section:",
+            paste("interactive_code <- '", gsub("'", "\\\\'", r_code_plot_interactive_reactive()), "'", sep=""),
+            "",
+            "# Table code section:",
+            paste("table_code <- '", gsub("'", "\\\\'", r_code_plot_table_reactive()), "'", sep=""),
+            "",
+            "# Final conditional code:",
+            r_code_plot_final_reactive(),
+            sep = "\n"
+          )
+          
+          incProgress(0.3, detail = "Executing plot code...")
+          
+          # Execute plot generation
+          plot_result <- eval(parse(text = combined_code), envir = env)
+          
+          incProgress(0.4, detail = "Finalizing plot...")
+          
+          # Update reactive with result
+          if (!is.null(plot_result)) {
+            plot_object_reactive(plot_result)
+            incProgress(0.5, detail = "Plot complete!")
+            showNotification("Plot generated successfully.", type = "message")
+          }
+          
+        }) # End withProgress
       })
+      ) # Close spsComps::shinyCatch
     })
 
     # Flexible plot output using renderUI
@@ -399,10 +437,10 @@ server_plotter <- function(id, combined_data_reactive, main_session_input = NULL
         # Plotly or other HTML widgets
         plot_obj
       } else if (inherits(plot_obj, "ggplot")) {
-        # ggplot objects - render as plot
+        # ggplot objects - render as plot with dynamic height
         renderPlot({
           plot_obj
-        }, height = 600)
+        }, height = "auto", width = "auto")
       } else if (inherits(plot_obj, "datatables")) {
         # DataTable objects
         plot_obj

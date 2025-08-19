@@ -89,11 +89,16 @@ if (exists('input_rename_1') && nzchar(input_rename_1)) {
   df_long <- rname(df_long, 'series', input_rename_1)
 }
 
-# Extract 'dut' (Device Under Test) identifier from file_name_source as an example
-# This pattern '2212\\d*' might be specific to your filenames.
-if ('file_name_source' %in% names(df_long)) {
-    df_long[, dut := stringr::str_extract(file_name_source, '2212[^_]*')] # Example: 2212 followed by digits until an underscore
+# Apply filename extractions defined in the UI
+if (exists('input_filename_extractions') && !is.null(input_filename_extractions) && nrow(input_filename_extractions) > 0) {
+    df_long <- extract_from_filename(df_long, 'file_name_source', input_filename_extractions)
 }
+
+# Extract 'dut' (Device Under Test) identifier from file_name_source as an example (can be removed if not needed)
+# This pattern '2212\\d*' might be specific to your filenames.
+# if ('file_name_source' %in% names(df_long)) {
+#     df_long[, dut := stringr::str_extract(file_name_source, '2212[^_]*')] # Example: 2212 followed by digits until an underscore
+# }
 
 # showNotification(paste('Post-processing complete for data from:', df_long[1, file_name_source]), type='message')
 df_long # Return the final processed data.table for this file

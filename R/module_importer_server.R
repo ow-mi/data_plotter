@@ -31,8 +31,98 @@ server_data_import <- function(id, global_files_reactive = NULL) { # Accept glob
       cat("Tab rename trigger set automatically\n")
       showNotification(paste("Tab renamed to:", new_name), type = "message", duration = 2)
     }, ignoreInit = TRUE) # Only trigger on user changes, not initial load
+    
+    # Handle adding filename extraction columns
+    observeEvent(input$add_extract_column, {
+      req(input$extract_column_name, input$extract_pattern)
+      
+      column_name <- trimws(input$extract_column_name)
+      pattern <- trimws(input$extract_pattern)
+      
+      if (column_name == "" || pattern == "") {
+        showNotification("Both column name and pattern are required.", type = "warning")
+        return()
+      }
+      
+      # Check if column name already exists
+      current_extractions <- filename_extractions()
+      if (column_name %in% current_extractions$column_name) {
+        showNotification(paste("Column", column_name, "already exists. Please use a different name."), type = "warning")
+        return()
+      }
+      
+      # Test the regex pattern
+      tryCatch({
+        test_string <- "Thermal performance-MWC B10 Box21-Charging1-Box data-20250331_072751362__MWCU_Offboard_Temp.csv"
+        str_extract(test_string, pattern)
+      }, error = function(e) {
+        showNotification(paste("Invalid regex pattern:", e$message), type = "error")
+        return()
+      })
+      
+      # Add new extraction rule
+      new_extraction <- data.frame(
+        column_name = column_name,
+        pattern = pattern,
+        stringsAsFactors = FALSE
+      )
+      updated_extractions <- rbind(current_extractions, new_extraction)
+      filename_extractions(updated_extractions)
+      
+      # Clear inputs
+      updateTextInput(session, "extract_column_name", value = "")
+      updateTextInput(session, "extract_pattern", value = "")
+      
+      showNotification(paste("Added column extraction:", column_name), type = "message")
+    })
+    
+    # Display current extractions
+    output$extraction_display <- renderUI({
+      extractions <- filename_extractions()
+      if (nrow(extractions) == 0) {
+        return(div(class = "text-muted small", "No extractions defined"))
+      }
+      
+      extract_items <- lapply(1:nrow(extractions), function(i) {
+        div(class = "d-flex justify-content-between align-items-center mb-1 p-1 border rounded",
+          div(class = "small",
+            strong(extractions$column_name[i]), " → ", 
+            code(extractions$pattern[i], style = "font-size: 0.8em;")
+          ),
+          actionButton(
+            ns(paste0("remove_extract_", i)),
+            label = "",
+            icon = icon("times"),
+            class = "btn-sm btn-outline-danger p-1",
+            style = "font-size: 0.7em; padding: 2px 6px !important;",
+            onclick = paste0("Shiny.setInputValue('", ns("remove_extract"), "', ", i, ");")
+          )
+        )
+      })
+      
+      do.call(tagList, extract_items)
+    })
+    
+    # Handle removing extractions
+    observeEvent(input$remove_extract, {
+      req(input$remove_extract)
+      extractions <- filename_extractions()
+      if (input$remove_extract <= nrow(extractions)) {
+        removed_name <- extractions$column_name[input$remove_extract]
+        updated_extractions <- extractions[-input$remove_extract, , drop = FALSE]
+        filename_extractions(updated_extractions)
+        showNotification(paste("Removed column extraction:", removed_name), type = "message")
+      }
+    })
 
     df_list_uploaded <- reactiveVal(data.table(name = character(0), path = character(0), size = numeric(0)))
+    
+    # Store filename extraction rules
+    filename_extractions <- reactiveVal(data.frame(
+      column_name = character(0),
+      pattern = character(0),
+      stringsAsFactors = FALSE
+    ))
 
 
 
@@ -122,7 +212,7 @@ server_data_import <- function(id, global_files_reactive = NULL) { # Accept glob
     }
     
     # Function to post-process a single data frame (for preview)
-    post_process_single_df <- function(df_to_process, code, filter_in_val, filter_out_val, rename_val, date_fmt_val) {
+    post_process_single_df <- function(df_to_process, code, filter_in_val, filter_out_val, rename_val, date_fmt_val, extractions_val = NULL) {
         spsComps::shinyCatch({
             env <- new.env(parent = .GlobalEnv)
             env$df <- as.data.table(df_to_process) # Ensure it's a data.table
@@ -136,6 +226,7 @@ server_data_import <- function(id, global_files_reactive = NULL) { # Accept glob
             env$filter_in <- filter_in # Make helper available
             env$filter_out <- filter_out # Make helper available
             env$rname <- rname # Make helper available
+            env$extract_from_filename <- extract_from_filename # Make helper available
             env$str_extract <- stringr::str_extract
             env$stringi <- stringi::stri_extract_first_regex # if used
 
@@ -144,6 +235,7 @@ server_data_import <- function(id, global_files_reactive = NULL) { # Accept glob
             env$input_filter_out_1 <- filter_out_val
             env$input_rename_1 <- rename_val
             env$input_date_format <- date_fmt_val
+            env$input_filename_extractions <- extractions_val
             
             eval(parse(text = code), envir = env)
         })
@@ -185,10 +277,11 @@ server_data_import <- function(id, global_files_reactive = NULL) { # Accept glob
             input$filter_in_1,
             input$filter_out_1,
             input$rename_1,
-            input$date_format
+            input$date_format,
+            filename_extractions()
         )
         df_preview_post_processed(df)
-    }) |> bindEvent(list(df_preview_pre_processed(), r_code_post_process_reactive(), input$filter_in_1, input$filter_out_1, input$rename_1, input$date_format), ignoreNULL = TRUE)
+    }) |> bindEvent(list(df_preview_pre_processed(), r_code_post_process_reactive(), input$filter_in_1, input$filter_out_1, input$rename_1, input$date_format, filename_extractions()), ignoreNULL = TRUE)
 
 
     # Display tables for preview
@@ -222,6 +315,7 @@ server_data_import <- function(id, global_files_reactive = NULL) { # Accept glob
       isolated_filter_out_1 <- isolate(input$filter_out_1)
       isolated_rename_1 <- isolate(input$rename_1)
       isolated_date_format <- isolate(input$date_format)
+      isolated_filename_extractions <- isolate(filename_extractions())
 
       # Use future_map2 for parallel processing if files are independent
       # Requires careful handling of environments and function calls
@@ -256,7 +350,8 @@ server_data_import <- function(id, global_files_reactive = NULL) { # Accept glob
             filter_in_val = isolated_filter_in_1,
             filter_out_val = isolated_filter_out_1,
             rename_val = isolated_rename_1,
-            date_fmt_val = isolated_date_format
+            date_fmt_val = isolated_date_format,
+            extractions_val = isolated_filename_extractions
           )
           return(df_post)
         })

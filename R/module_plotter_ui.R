@@ -1,10 +1,29 @@
 ui_plotter <- function(id) {
   ns <- NS(id) # Ensure ns is defined for the main module ID
-  div(class = "module-container",
+  div(class = "module-container", style = "position: relative;",
+    # Floating action buttons container positioned just below the navbar
+    div(
+      style = "position: absolute; top: calc(var(--navbar-height, 56px) + 6px); left: 50%; transform: translateX(-50%); z-index: 1000; display: flex; gap: 8px; align-items: center;",
+      actionButton(
+        ns("data_render"), 
+        "Process Data",
+        icon = icon("play", lib = "font-awesome"), 
+        class = "btn-primary btn-lg",
+        style = "box-shadow: 0 4px 8px rgba(0,0,0,0.2);"
+      ) |> tooltip("Process the input data for this plot"),
+      actionButton(
+        ns("plot_render"), 
+        "Create Plot",
+        icon = icon("chart-line", lib = "font-awesome"), 
+        class = "btn-success btn-lg",
+        style = "box-shadow: 0 4px 8px rgba(0,0,0,0.2);"
+      ) |> tooltip("Generate the plot using current settings")
+    ),
+
     navset_card_pill(
-      id = ns("plotter_tabs"),
-      # full_screen = TRUE, # Removed - using dynamic height instead
-      height = "100%",
+        id = ns("plotter_tabs"),
+        # full_screen = TRUE, # Removed - using dynamic height instead
+        height = "100%",
     
       # Input Data Tab
       nav_panel(
@@ -16,6 +35,8 @@ ui_plotter <- function(id) {
             width = 300,
             class = "p-2",
             
+
+
             # Plot Name (auto-apply)
             div(class = "mb-3",
               h6("Plot Name", class = "text-muted mb-1 small"),
@@ -60,17 +81,8 @@ ui_plotter <- function(id) {
             width = 350,
             class = "p-2",
             
-            # Data Processing Action
+            # Processing Status (button moved to floating bar)
             div(class = "mb-3",
-              actionButton(
-                ns("data_render"), 
-                "Process Data",
-                icon = icon("play", lib = "font-awesome"),
-                class = "btn-primary w-100",
-                style = "margin-bottom: 10px;"
-              ) |> tooltip("Process the input data for this plot"),
-              
-              # Processing Status
               verbatimTextOutput(ns("data_status"), placeholder = TRUE)
             ),
             
@@ -197,23 +209,9 @@ ui_plotter <- function(id) {
             width = 350,
             class = "p-2",
             
-            # Main Action Row (compact)
-            div(class = "mb-3",
-              actionButton(
-                ns("plot_render"), 
-                "Create Plot",
-                icon = icon("chart-line", lib = "font-awesome"), 
-                class = "btn-success w-100",
-                style = "margin-bottom: 10px;"
-              ) |> tooltip("Generate the plot using current settings"),
-              
-              # Plot Status
-              verbatimTextOutput(ns("plot_status"), placeholder = TRUE)
-            ),
-            
-            # Output Type
-            div(class = "mb-3",
-              h6("Output Type", class = "text-muted mb-2"),
+            # Compact Output Type
+            div(class = "mb-2",
+              h6("Output Type", class = "text-muted mb-1 small"),
               radioButtons(
                 ns("plot_type"),
                 NULL,
@@ -224,251 +222,277 @@ ui_plotter <- function(id) {
                   "Text Summary" = "text"
                 ),
                 selected = "interactive",
-                inline = FALSE
+                inline = TRUE
               ) |> tooltip("Choose the type of output to generate")
             ),
             
-            # Plot Aesthetics (compact)
-            div(class = "mb-3",
-              h6("Plot Settings", class = "text-muted mb-2"),
-              
-              # Plot titles and labels
-              textInput(
-                ns("plot_title"),
-                "Title",
-                placeholder = "Plot title...",
-                width = "100%"
-              ),
-              
-              textInput(
-                ns("plot_caption"),
-                "Caption",
-                placeholder = "Plot caption/notes...",
-                width = "100%"
-              ),
-              
-              div(class = "row g-1",
-                div(class = "col-6",
-                  selectInput(
-                    ns("plot_xlabel"),
-                    "X Label",
-                    choices = list(
-                      "Timestamp" = "Timestamp",
-                      "Duration Minutes" = "Duration Minutes", 
-                      "Duration Hours" = "Duration Hours",
-                      "Duration Days" = "Duration Days",
-                      "Duration Seconds" = "Duration Seconds"
-                    ),
-                    selected = "Timestamp",
-                    width = "100%"
-                  )
-                ),
-                div(class = "col-6",
-                  textInput(
-                    ns("plot_ylabel"),
-                    "Y Label",
-                    placeholder = "Y axis...", 
-                    width = "100%"
-                  )
-                )
-              )
-            ),
-            
-            # Plot Type & Aesthetics
-            div(class = "mb-3",
-              h6("Plot Type & Aesthetics", class = "text-muted mb-2"),
-              selectInput(
-                ns("geom_type"),
-                "Plot Type",
-                choices = list(
-                  "Line" = "geom_line",
-                  "Point" = "geom_point", 
-                  "Line + Point" = "geom_line_point",
-                  "Area" = "geom_area",
-                  "Smooth" = "geom_smooth",
-                  "Column" = "geom_col"
-                ),
-                selected = "geom_line",
-                width = "100%"
-              ) |> tooltip("Choose the type of plot geometry"),
-              
-              selectInput(
-                ns("plot_color"),
-                "Color by",
-                choices = list("None" = "null"),
-                selected = "null",
-                width = "100%"
-              ) |> tooltip("Group data by color using a column"),
-              
-              selectInput(
-                ns("plot_linetype"),
-                "Line Type by",
-                choices = list("None" = "null"),
-                selected = "null",
-                width = "100%"
-              ) |> tooltip("Group data by line type using a column")
-            ),
-            
-            # Visual Style
-            div(class = "mb-3",
-              h6("Visual Style", class = "text-muted mb-2"),
-              div(class = "row g-1",
-                div(class = "col-4",
-                  numericInput(
-                    ns("line_width"),
-                    "Line Size",
-                    value = 1,
-                    min = 0.1,
-                    max = 5,
-                    step = 0.1,
-                    width = "100%"
-                  )
-                ),
-                div(class = "col-4",
-                  numericInput(
-                    ns("point_size"),
-                    "Point Size", 
-                    value = 2,
-                    min = 0.5,
-                    max = 10,
-                    step = 0.5,
-                    width = "100%"
-                  )
-                ),
-                div(class = "col-4",
-                  numericInput(
-                    ns("alpha"),
-                    "Transparency",
-                    value = 1.0,
-                    min = 0.1,
-                    max = 1.0,
-                    step = 0.1,
-                    width = "100%"
-                  )
-                )
-              )
-            ),
-            
-            # Theme & Colors
-            div(class = "mb-3",
-              h6("Theme & Colors", class = "text-muted mb-2"),
-              selectInput(
-                ns("plot_theme"),
-                "Theme",
-                choices = list(
-                  "Classic" = "theme_classic",
-                  "Minimal" = "theme_minimal", 
-                  "Dark" = "theme_dark",
-                  "Light" = "theme_light",
-                  "BW" = "theme_bw",
-                  "Void" = "theme_void"
-                ),
-                selected = "theme_classic",
-                width = "100%"
-              ),
-              selectInput(
-                ns("color_palette"),
-                "Color Palette",
-                choices = list(
-                  "Default" = "default",
-                  "Viridis" = "viridis",
-                  "Set1" = "Set1",
-                  "Set2" = "Set2", 
-                  "Dark2" = "Dark2",
-                  "Paired" = "Paired"
-                ),
-                selected = "default",
-                width = "100%"
-              )
-            ),
-            
-            # Axis Controls
-            div(class = "mb-3",
-              h6("Axis Controls", class = "text-muted mb-2"),
-              div(class = "row g-1",
-                div(class = "col-6",
-                  selectInput(
-                    ns("x_trans"),
-                    "X Transform",
-                    choices = list(
-                      "Linear" = "identity",
-                      "Log" = "log",
-                      "Log10" = "log10",
-                      "Sqrt" = "sqrt"
-                    ),
-                    selected = "identity",
-                    width = "100%"
-                  )
-                ),
-                div(class = "col-6",
-                  selectInput(
-                    ns("y_trans"),
-                    "Y Transform", 
-                    choices = list(
-                      "Linear" = "identity",
-                      "Log" = "log",
-                      "Log10" = "log10",
-                      "Sqrt" = "sqrt"
-                    ),
-                    selected = "identity",
-                    width = "100%"
-                  )
-                )
-              )
-            ),
-            
-            # Faceting
-            div(class = "mb-3",
-              h6("Faceting", class = "text-muted mb-2"),
-              div(class = "row g-1",
-                div(class = "col-4",
-                  numericInput(
-                    ns("plot_facet_start"),
-                    "Facet Start",
-                    value = 1,
-                    min = 1,
-                    width = "100%"
-                  )
-                ),
-                div(class = "col-4",
-                  numericInput(
-                    ns("plot_facet_end"),
-                    "Facet End", 
-                    value = 0,
-                    min = 0,
-                    width = "100%"
-                  )
-                ),
-                div(class = "col-4",
-                  numericInput(
-                    ns("plot_facet_nrow"),
-                    "Facet Rows",
-                    value = 2,
-                    min = 1,
-                    width = "100%"
-                  )
-                )
-              ) |> tooltip("Create subplots by extracting characters from series names")
-            ),
-            
-            # Grid Lines
-            div(class = "mb-3",
-              h6("Grid Lines", class = "text-muted mb-2"),
-              
-              # Vertical Grid Type Selection
+            # Interactive-specific settings
+            conditionalPanel(
+              condition = paste0("input['", ns("plot_type"), "'] == 'interactive'"),
               div(class = "mb-2",
-                selectInput(
-                  ns("vertical_grid_type"),
-                  "Vertical Grid Type",
-                  choices = list(
-                    "Auto-detect" = "auto",
-                    "Numeric Values" = "numeric", 
-                    "Timestamp" = "timestamp"
-                  ),
-                  selected = "auto",
+                checkboxInput(
+                  ns("plot_interactive_min_max"),
+                  "Interactive Min/Max",
+                  value = FALSE,
                   width = "100%"
-                ) |> tooltip("Choose how to interpret X-axis data for vertical grids. Auto-detect uses data type, Numeric treats as numbers, Timestamp treats as time data.")
+                ) |> tooltip("Enable interactive min/max functionality for plotly plots")
+              )
+            ),
+            
+                        # Single Accordion for all Plot Settings
+            accordion(
+              id = ns("plot_settings_accordion"),
+              
+              # Basic Settings Panel
+              accordion_panel(
+                title = "Basic Settings",
+                icon = icon("cog"),
+                open = TRUE,
+                
+                # Compact title and caption
+                div(class = "mb-2",
+                  textInput(ns("plot_title"), "Title", placeholder = "Plot title...", width = "100%")
+                ),
+                div(class = "mb-2",
+                  textInput(ns("plot_caption"), "Caption", placeholder = "Plot caption...", width = "100%")
+                ),
+                
+                # Compact labels in row
+                div(class = "row g-1",
+                  div(class = "col-6",
+                    selectInput(
+                      ns("plot_xlabel"),
+                      "X Label",
+                      choices = list(
+                        "Timestamp" = "Timestamp",
+                        "Duration Minutes" = "Duration Minutes", 
+                        "Duration Hours" = "Duration Hours",
+                        "Duration Days" = "Duration Days",
+                        "Duration Seconds" = "Duration Seconds"
+                      ),
+                      selected = "Timestamp",
+                      width = "100%"
+                    )
+                  ),
+                  div(class = "col-6",
+                    selectizeInput(
+                      ns("plot_ylabel"),
+                      "Y Label",
+                      choices = list(
+                        "Temperature [°C]",
+                        "Voltage [V]", 
+                        "Current [A]", 
+                        "Power [W]",
+                        "Frequency [Hz]",
+                        "Resistance [Ohm]",
+                        "Pressure [kPa]",
+                        "Humidity [%]",
+                        "Percentage [%]"
+                      ),
+                      width = "100%",
+                      selected = NULL, 
+                      multiple = FALSE,
+                      options = list(create = TRUE)
+                    )
+                  )
+                )
               ),
+            
+              # Plot Type & Aesthetics Panel
+              accordion_panel(
+                title = "Plot Type & Aesthetics",
+                icon = icon("paint-brush"),
+                open = FALSE,
+                
+                div(class = "mb-2",
+                  selectInput(
+                    ns("geom_type"),
+                    "Plot Type",
+                    choices = list(
+                      "Line" = "geom_line",
+                      "Point" = "geom_point", 
+                      "Line + Point" = "geom_line_point",
+                      "Area" = "geom_area",
+                      "Smooth" = "geom_smooth",
+                      "Column" = "geom_col"
+                    ),
+                    selected = "geom_line",
+                    width = "100%"
+                  ) |> tooltip("Choose the type of plot geometry")
+                ),
+                
+                div(class = "mb-2",
+                  selectInput(
+                    ns("plot_color"),
+                    "Color by",
+                    choices = list("None" = "null"),
+                    selected = "null",
+                    width = "100%"
+                  ) |> tooltip("Group data by color using a column")
+                ),
+                
+                div(class = "mb-2",
+                  selectInput(
+                    ns("plot_linetype"),
+                    "Line Type by",
+                    choices = list("None" = "null"),
+                    selected = "null",
+                    width = "100%"
+                  ) |> tooltip("Group data by line type using a column")
+                )
+              ),
+            
+                          # Visual Style Panel
+              accordion_panel(
+                title = "Visual Style",
+                icon = icon("palette"),
+                open = FALSE,
+                
+                div(class = "row g-1",
+                  div(class = "col-4",
+                    numericInput(ns("line_width"), "Line Size", value = 1, min = 0.1, max = 5, step = 0.1, width = "100%")
+                  ),
+                  div(class = "col-4",
+                    numericInput(ns("point_size"), "Point Size", value = 2, min = 0.5, max = 10, step = 0.5, width = "100%")
+                  ),
+                  div(class = "col-4",
+                    numericInput(ns("alpha"), "Transparency", value = 1.0, min = 0.1, max = 1.0, step = 0.1, width = "100%")
+                  )
+                )
+              ),
+            
+              # Theme & Colors Panel
+              accordion_panel(
+                title = "Theme & Colors",
+                icon = icon("paint-brush"),
+                open = FALSE,
+                
+                div(class = "mb-2",
+                  selectInput(
+                    ns("plot_theme"),
+                    "Theme",
+                    choices = list(
+                      "Classic" = "theme_classic",
+                      "Minimal" = "theme_minimal", 
+                      "Dark" = "theme_dark",
+                      "Light" = "theme_light",
+                      "BW" = "theme_bw",
+                      "Void" = "theme_void"
+                    ),
+                    selected = "theme_classic",
+                    width = "100%"
+                  )
+                ),
+                
+                div(class = "mb-2",
+                  selectInput(
+                    ns("color_palette"),
+                    "Color Palette",
+                    choices = list(
+                      "Default" = "default",
+                      "Viridis" = "viridis",
+                      "Set1" = "Set1",
+                      "Set2" = "Set2", 
+                      "Dark2" = "Dark2",
+                      "Paired" = "Paired",
+                      "Paletteer" = "paletteer"
+                    ),
+                    selected = "default",
+                    width = "100%"
+                  )
+                ),
+                
+                # Conditional input for paletteer palette name
+                conditionalPanel(
+                  condition = paste0("input['", ns("color_palette"), "'] == 'paletteer'"),
+                  div(class = "mb-2",
+                    textInput(
+                      ns("color_palette_paletter"),
+                      "Paletteer Palette",
+                      placeholder = "e.g., 'ggsci::npg', 'RColorBrewer::Set3'",
+                      width = "100%"
+                    ) |> tooltip("Enter paletteer palette name (e.g., 'ggsci::npg', 'RColorBrewer::Set3', 'viridis::plasma')")
+                  )
+                )
+              ),
+            
+                          # Axis Controls Panel
+              accordion_panel(
+                title = "Axis Controls",
+                icon = icon("arrows-alt-h"),
+                open = FALSE,
+                
+                div(class = "row g-1",
+                  div(class = "col-6",
+                    selectInput(
+                      ns("x_trans"),
+                      "X Transform",
+                      choices = list(
+                        "Linear" = "identity",
+                        "Log" = "log",
+                        "Log10" = "log10",
+                        "Sqrt" = "sqrt"
+                      ),
+                      selected = "identity",
+                      width = "100%"
+                    )
+                  ),
+                  div(class = "col-6",
+                    selectInput(
+                      ns("y_trans"), 
+                      "Y Transform", 
+                      choices = list(
+                        "Linear" = "identity",
+                        "Log" = "log",
+                        "Log10" = "log10",
+                        "Sqrt" = "sqrt"
+                      ),
+                      selected = "identity",
+                      width = "100%"
+                    )
+                  )
+                )
+              ),
+            
+                          # Faceting Panel
+              accordion_panel(
+                title = "Faceting",
+                icon = icon("th"),
+                open = FALSE,
+                
+                div(class = "row g-1",
+                  div(class = "col-4",
+                    numericInput(ns("plot_facet_start"), "Start", value = 1, min = 1, width = "100%")
+                  ),
+                  div(class = "col-4",
+                    numericInput(ns("plot_facet_end"), "End", value = 0, min = 0, width = "100%")
+                  ),
+                  div(class = "col-4",
+                    numericInput(ns("plot_facet_nrow"), "Rows", value = 2, min = 1, width = "100%")
+                  )
+                ) |> tooltip("Create subplots by extracting characters from series names")
+              ),
+            
+              # Grid Lines Panel
+              accordion_panel(
+                title = "Grid Lines",
+                icon = icon("border-all"),
+                open = FALSE,
+                
+                # Vertical Grid Type Selection
+                div(class = "mb-2",
+                  selectInput(
+                    ns("vertical_grid_type"),
+                    "Vertical Grid Type",
+                    choices = list(
+                      "Auto-detect" = "auto",
+                      "Numeric Values" = "numeric", 
+                      "Timestamp" = "timestamp"
+                    ),
+                    selected = "auto",
+                    width = "100%"
+                  ) |> tooltip("Choose how to interpret X-axis data for vertical grids")
+                ),
               
               # Major Vertical Grid
               checkboxInput(ns("enable_major_vgrid"), "Major Vertical Grid"),
@@ -695,41 +719,33 @@ ui_plotter <- function(id) {
               )
             ),
             
-            # Axis Limits
-            div(class = "mb-3",
-              h6("Axis Limits", class = "text-muted mb-2"),
-              
-              # Y Axis Limits with individual toggles
-              div(class = "row g-1",
-                div(class = "col-6",
-                  checkboxInput(ns("enable_y_start"), "Set Y Start"),
-                  conditionalPanel(
-                    condition = paste0("input['", ns("enable_y_start"), "']"),
-                    div(class = "ms-3 border-start ps-2",
-                      numericInput(
-                        ns("y_start"),
-                        "Y Start",
-                        value = 0,
-                        width = "100%"
+              # Axis Limits Panel
+              accordion_panel(
+                title = "Axis Limits",
+                icon = icon("arrows-alt-v"),
+                open = FALSE,
+                
+                # Y Axis Limits with individual toggles
+                div(class = "row g-1",
+                  div(class = "col-6",
+                    checkboxInput(ns("enable_y_start"), "Set Y Start"),
+                    conditionalPanel(
+                      condition = paste0("input['", ns("enable_y_start"), "']"),
+                      div(class = "ms-3 border-start ps-2",
+                        numericInput(ns("y_start"), "Y Start", value = 0, width = "100%")
+                      )
+                    )
+                  ),
+                  div(class = "col-6",
+                    checkboxInput(ns("enable_y_end"), "Set Y End"),
+                    conditionalPanel(
+                      condition = paste0("input['", ns("enable_y_end"), "']"),
+                      div(class = "ms-3 border-start ps-2",
+                        numericInput(ns("y_end"), "Y End", value = 100, width = "100%")
                       )
                     )
                   )
                 ),
-                div(class = "col-6",
-                  checkboxInput(ns("enable_y_end"), "Set Y End"),
-                  conditionalPanel(
-                    condition = paste0("input['", ns("enable_y_end"), "']"),
-                    div(class = "ms-3 border-start ps-2",
-                      numericInput(
-                        ns("y_end"),
-                        "Y End",
-                        value = 100,
-                        width = "100%"
-                      )
-                    )
-                  )
-                )
-              ),
               
               # X Axis Type Selection
               selectInput(
@@ -821,157 +837,136 @@ ui_plotter <- function(id) {
               )
             ),
             
-            # Font sizes
-            div(class = "mb-3",
-              h6("Font Sizes", class = "text-muted mb-2"),
-              div(class = "row g-1",
-                div(class = "col-4",
-                  numericInput(
-                    ns("title_font_size"),
-                    "Title",
-                    value = 14,
-                    min = 8,
-                    max = 30,
-                    width = "100%"
-                  )
-                ),
-                div(class = "col-4",
-                  numericInput(
-                    ns("xaxis_font_size"),
-                    "X-Axis",
-                    value = 12,
-                    min = 8,
-                    max = 24,
-                    width = "100%"
-                  )
-                ),
-                div(class = "col-4",
-                  numericInput(
-                    ns("yaxis_font_size"),
-                    "Y-Axis",
-                    value = 12,
-                    min = 8,
-                    max = 24,
-                    width = "100%"
-                  )
-                )
-              )
-            ),
-            
-            # Legend Controls
-            div(class = "mb-3",
-              h6("Legend", class = "text-muted mb-2"),
-              div(class = "row g-1",
-                div(class = "col-6",
-                  selectInput(
-                    ns("legend_position"),
-                    "Position",
-                    choices = list(
-                      "Right" = "right",
-                      "Top" = "top", 
-                      "Bottom" = "bottom",
-                      "Left" = "left",
-                      "None" = "none"
-                    ),
-                    selected = "right",
-                    width = "100%"
-                  )
-                ),
-                div(class = "col-6",
-                  numericInput(
-                    ns("legend_font_size"),
-                    "Font Size",
-                    value = 12,
-                    min = 8,
-                    max = 20,
-                    width = "100%"
-                  )
-                )
-              )
-            ),
-            
-            # Lines
-            div(class = "mb-3",
-              h6("Lines", class = "text-muted mb-2"),
-              
-              # Trend Line
-              checkboxInput(
-                ns("add_smooth"),
-                "Trend Line",
-                value = FALSE
-              ) |> tooltip("Add a smooth trend line to the plot"),
-              
-              conditionalPanel(
-                condition = paste0("input['", ns("add_smooth"), "']"),
-                div(class = "ms-3 border-start ps-2",
-                  textInput(
-                    ns("smooth_name"),
-                    "Legend Name",
-                    value = "Trend",
-                    placeholder = "Name for legend...",
-                    width = "100%"
-                  ),
-                  selectInput(
-                    ns("smooth_method"),
-                    "Method",
-                    choices = list(
-                      "Loess" = "loess",
-                      "Linear" = "lm",
-                      "GAM" = "gam"
-                    ),
-                    selected = "loess",
-                    width = "100%"
-                  ),
+              # Font & Legend Panel
+              accordion_panel(
+                title = "Font & Legend",
+                icon = icon("font"),
+                open = FALSE,
+                
+                # Font sizes
+                div(class = "mb-2",
+                  h6("Font Sizes", class = "text-muted mb-1 small"),
                   div(class = "row g-1",
-                    div(class = "col-3",
+                    div(class = "col-4",
+                      numericInput(ns("title_font_size"), "Title", value = 14, min = 8, max = 30, width = "100%")
+                    ),
+                    div(class = "col-4",
+                      numericInput(ns("xaxis_font_size"), "X-Axis", value = 12, min = 8, max = 24, width = "100%")
+                    ),
+                    div(class = "col-4",
+                      numericInput(ns("yaxis_font_size"), "Y-Axis", value = 12, min = 8, max = 24, width = "100%")
+                    )
+                  )
+                ),
+                
+                # Legend Controls
+                div(class = "mb-2",
+                  h6("Legend", class = "text-muted mb-1 small"),
+                  div(class = "row g-2",
+                    div(class = "col-6",
                       selectInput(
-                        ns("smooth_linetype"),
-                        "Type",
+                        ns("legend_position"),
+                        "Position",
                         choices = list(
-                          "Solid" = "solid",
-                          "Dashed" = "dashed", 
-                          "Dotted" = "dotted",
-                          "Dot-dash" = "dotdash"
+                          "Right" = "right",
+                          "Top" = "top", 
+                          "Bottom" = "bottom",
+                          "Left" = "left",
+                          "None" = "none"
                         ),
-                        selected = "solid",
+                        selected = "right",
                         width = "100%"
                       )
                     ),
-                    div(class = "col-3",
-                      numericInput(
-                        ns("smooth_linewidth"),
-                        "Width",
-                        value = 1,
-                        min = 0.1,
-                        max = 3,
-                        step = 0.1,
-                        width = "100%"
-                      )
+                    div(class = "col-6",
+                      numericInput(ns("legend_font_size"), "Font Size", value = 12, min = 8, max = 20, width = "100%")
+                    )
+                  )
+                ),
+                
+                # Caption Controls
+                div(class = "mb-2",
+                  h6("Caption", class = "text-muted mb-1 small"),
+                  div(class = "row g-1",
+                    div(class = "col-6",
+                      numericInput(ns("caption_font_size"), "Font Size", value = 10, min = 6, max = 18, width = "100%")
                     ),
-                    div(class = "col-3",
+                    div(class = "col-6",
                       selectInput(
-                        ns("smooth_color"),
+                        ns("caption_color"),
                         "Color",
                         choices = list(
-                          "Red" = "red",
+                          "Black" = "black",
+                          "Grey" = "grey50",
+                          "Dark Grey" = "grey30",
+                          "Light Grey" = "grey70",
                           "Blue" = "blue",
-                          "Green" = "green",
-                          "Purple" = "purple",
-                          "Orange" = "orange",
-                          "Black" = "black"
+                          "Red" = "red"
                         ),
-                        selected = "red",
+                        selected = "grey50",
                         width = "100%"
                       )
+                    )
+                  ),
+                  div(class = "row g-1",
+                    div(class = "col-6",
+                      numericInput(ns("caption_x"), "X Position", value = 1, min = 0, max = 1, step = 0.1, width = "100%") |> tooltip("0 = left, 0.5 = center, 1 = right")
                     ),
-                    div(class = "col-3",
-                      div(style = "margin-top: 25px;",
-                        checkboxInput(ns("smooth_legend"), "Legend", value = TRUE)
-                      )
+                    div(class = "col-6",
+                      numericInput(ns("caption_y"), "Y Position", value = 0, min = 0, max = 1, step = 0.1, width = "100%") |> tooltip("0 = bottom, 0.5 = center, 1 = top")
                     )
                   )
                 )
               ),
+            
+              # Lines & Overlays Panel
+              accordion_panel(
+                title = "Lines & Overlays",
+                icon = icon("chart-line"),
+                open = FALSE,
+                
+                # Trend Line
+                div(class = "mb-2",
+                  checkboxInput(
+                    ns("add_smooth"),
+                    "Trend Line",
+                    value = FALSE
+                  ) |> tooltip("Add a smooth trend line to the plot"),
+                  
+                  conditionalPanel(
+                    condition = paste0("input['", ns("add_smooth"), "']"),
+                    div(class = "ms-3 border-start ps-2",
+                      textInput(ns("smooth_name"), "Legend Name", value = "Trend", placeholder = "Name for legend...", width = "100%"),
+                      selectInput(
+                        ns("smooth_method"),
+                        "Method",
+                        choices = list(
+                          "Loess" = "loess",
+                          "Linear" = "lm",
+                          "GAM" = "gam"
+                        ),
+                        selected = "loess",
+                        width = "100%"
+                      ),
+                      div(class = "row g-1",
+                        div(class = "col-3",
+                          selectInput(ns("smooth_linetype"), "Type", choices = list("Solid" = "solid", "Dashed" = "dashed", "Dotted" = "dotted", "Dot-dash" = "dotdash"), selected = "solid", width = "100%")
+                        ),
+                        div(class = "col-3",
+                          numericInput(ns("smooth_linewidth"), "Width", value = 1, min = 0.1, max = 3, step = 0.1, width = "100%")
+                        ),
+                        div(class = "col-3",
+                          selectInput(ns("smooth_color"), "Color", choices = list("Red" = "red", "Blue" = "blue", "Green" = "green", "Purple" = "purple", "Orange" = "orange", "Black" = "black"), selected = "red", width = "100%")
+                        ),
+                        div(class = "col-3",
+                          div(style = "margin-top: 25px;",
+                            checkboxInput(ns("smooth_legend"), "Legend", value = TRUE)
+                          )
+                        )
+                      )
+                    )
+                  )
+                ),
               
               # Horizontal Line 1
               checkboxInput(ns("enable_hline_1"), "Horizontal Line 1"),
@@ -1526,8 +1521,8 @@ ui_plotter <- function(id) {
               )
             ),
             
-            # Download
-            div(class = "mt-auto",
+            # Download Button
+            div(class = "mt-3",
               downloadButton(
                 ns("download_output"), 
                 "Download Plot",
@@ -1536,6 +1531,8 @@ ui_plotter <- function(id) {
               ) |> tooltip("Download the current plot as file")
             )
           ),
+          
+          ), # Close single accordion
           
           # Plot Display Content
           layout_sidebar(
@@ -1609,9 +1606,9 @@ ui_plotter <- function(id) {
               card_header("Generated Output"),
               uiOutput(ns("plot_output"))
             )
-          )
         )
       )
+  )
     ) # Close navset_card_pill
   ) # Close module-container div
 }

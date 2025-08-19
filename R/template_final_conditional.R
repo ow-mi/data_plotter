@@ -3,7 +3,7 @@
 
 ggplot_final_template <- "# Final conditional code to select output type
 # This code runs after all the above templates and selects the appropriate output
-# Available: df (processed data), input (UI inputs)
+# Available: df (processed data), input (UI inputs), incProgress()
 
 if (is.null(df) || nrow(df) == 0) {
   # No data case
@@ -17,18 +17,22 @@ if (is.null(df) || nrow(df) == 0) {
   # Select output based on plot type
   if (input$plot_type == 'text') {
     # Execute text template code and render as print
+    if (exists('incProgress')) incProgress(0.1, detail = 'Generating text output...')
     text_output <- eval(parse(text = text_code))
     renderPrint({ text_output })
   } else if (input$plot_type == 'static') {
     # Execute static template code and render as plot
+    if (exists('incProgress')) incProgress(0.1, detail = 'Creating static plot...')
     static_plot <- eval(parse(text = static_code))
-    renderPlot({ static_plot }, height = 600)
+    renderPlot({ static_plot })
   } else if (input$plot_type == 'interactive') {
     # Execute interactive template code and return plotly object directly
+    if (exists('incProgress')) incProgress(0.1, detail = 'Building interactive plot...')
     interactive_plot <- eval(parse(text = interactive_code))
     renderUI({ interactive_plot })
   } else if (input$plot_type == 'table') {
     # Execute table template code and render as DT
+    if (exists('incProgress')) incProgress(0.1, detail = 'Creating data table...')
     table_output <- eval(parse(text = table_code))
     table_output # Return DT object directly
   } else {

@@ -26,7 +26,9 @@ if (theme_choice == 'theme_classic') {
 if (!is.null(input$plot_color) && input$plot_color != 'null' && input$plot_color %in% names(plot_df)) {
   color_palette <- if(!is.null(input$color_palette)) input$color_palette else 'default'
   
-  if (color_palette == 'viridis') {
+  if (color_palette == 'paletteer') {
+    p <- p + scale_colour_paletteer_d(input$color_palette_paletter)
+  } else if (color_palette == 'viridis') {
     p <- p + scale_color_viridis_d()
   } else if (color_palette %in% c('Set1', 'Set2', 'Dark2', 'Paired')) {
     p <- p + scale_color_brewer(type = 'qual', palette = color_palette)
@@ -40,6 +42,12 @@ xaxis_size <- if(!is.null(input$xaxis_font_size)) input$xaxis_font_size else 12
 yaxis_size <- if(!is.null(input$yaxis_font_size)) input$yaxis_font_size else 12
 legend_size <- if(!is.null(input$legend_font_size)) input$legend_font_size else 12
 
+# Get caption settings
+caption_size <- if(!is.null(input$caption_font_size)) input$caption_font_size else 10
+caption_color <- if(!is.null(input$caption_color)) input$caption_color else 'grey50'
+caption_x <- if(!is.null(input$caption_x)) input$caption_x else 1
+caption_y <- if(!is.null(input$caption_y)) input$caption_y else 0
+
 # Apply legend settings
 legend_pos <- if(!is.null(input$legend_position)) input$legend_position else 'right'
 
@@ -52,15 +60,33 @@ p <- p + theme(
   axis.text.y = element_text(size = yaxis_size * 0.9),
   legend.position = legend_pos,
   legend.text = element_text(size = legend_size),
-  legend.title = element_text(size = legend_size)
+  legend.title = element_text(size = legend_size),
+  plot.caption = element_text(
+    size = caption_size,
+    color = caption_color,
+    hjust = caption_x,
+    vjust = caption_y
+  )
 )
+
+# Process caption with string_eval for dynamic content
+caption_text <- if(!is.null(input$plot_caption) && nzchar(input$plot_caption)) {
+  # Create environment with plot_df available for string evaluation
+  eval_env <- new.env(parent = .GlobalEnv)
+  eval_env$df <- plot_df
+  eval_env$plot_df <- plot_df
+  # Apply string_eval to process any quoted R code in the caption
+  string_eval(input$plot_caption, env = eval_env)
+} else {
+  NULL
+}
 
 # Add labels and title
 plot_labs <- labs(
-  title = if(!is.null(input$plot_title) && nzchar(input$plot_title)) input$plot_title else 'Plot Title',
-  x = x_label,
-  y = if(!is.null(input$plot_ylabel)) input$plot_ylabel else 'Y Axis',
-  caption = if(!is.null(input$plot_caption) && nzchar(input$plot_caption)) input$plot_caption else NULL
+  title = input$plot_title |> string_eval(),
+  x = x_label |> string_eval(),
+  y = input$plot_ylabel |> string_eval(),
+  caption = caption_text |> string_eval()
 )
 
 # Add proper legend labels

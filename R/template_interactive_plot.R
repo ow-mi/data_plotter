@@ -3,13 +3,19 @@
 # This is a condensed version of the interactive template
 ggplot_interactive_template <- r"---(
 
+
 # Interactive plot code (plotly)
-# Available: df (processed data), input (UI inputs)  
+# Available: df (processed data), input (UI inputs), incProgress()
 # Return: htmltools tagList object
+# 
+# For slow operations, use:
+# if (exists('incProgress')) incProgress(0.1, detail = 'Creating base plot...')
 
 # Ensure required libraries are available
 library(plotly)
-
+library(plotly)
+library(bslib)
+library(htmltools)
 static_plot <- eval(parse(text = static_code))
 
 
@@ -39,9 +45,8 @@ for (i in 1:4) {
 
 # Add layout
 p <- p |> layout(
-  hovermode = "x unified",
+  hovermode = ifelse(isTRUE(input$unified_hover), "x unified", "closest"),
   legend = list(orientation = 'h', y = -0.2),
-  shapes = shapes_list,
   annotations = list(
     list(
       x = 1, y = 0, xref = 'paper', yref = 'paper',
@@ -49,6 +54,16 @@ p <- p |> layout(
       showarrow = FALSE, xanchor = 'right', yanchor = 'bottom',
       font = list(size = 10, color = 'grey')
     )
+  ),
+  xaxis = list(
+    rangeslider = list(visible = isTRUE(input$show_slider)),
+    rangeselector = if (isTRUE(input$show_slider)) list(
+      buttons = list(
+        list(count = 10, label = "10m", step = "minute", stepmode = "backward"),
+        list(count = 30, label = "30m", step = "minute", stepmode = "backward"),
+        list(step = "all")
+      )
+    ) else NULL
   )
 )
 
@@ -116,11 +131,59 @@ stats_table_div <- div(
   "))
 )
 
-# Combine
-final_output <- navset_card_pill(
-  nav_panel(title = "plot", p),
+# # Combine
+# final_output <- navset_card_pill(
+#   nav_panel(title = "plot", plotly::fill_container(p)),
+#   nav_panel(title = "table", stats_table_div)
+# )
+
+# p |> config( displaylogo = FALSE,
+#  toImageButtonOptions = list(format= 'svg',scale= 1 ),
+#  modeBarButtonsToAdd = list('drawline',                 'drawopenpath',  'drawcircle',   'drawrect')
+# #   toImageButtonOptions = list(format= 'png',scale= 1 )
+
+
+# )
+# final_output
+
+# p
+p_advanced <- p |>
+  htmlwidgets::onRender("
+    function(el) {
+      // Find the plot's container and resize the plot
+      var plot = Plotly.d3.select(el).select('.plotly');
+      var resizeHandler = function() {
+        Plotly.Plots.resize(plot.node());
+      };
+      // Resize once initially
+      resizeHandler();
+      // Add a listener to resize when the window changes size
+      window.addEventListener('resize', resizeHandler);
+    }
+  ")
+
+final_output_advanced <- navset_card_pill(
+  nav_panel(title = "plot", p_advanced),
   nav_panel(title = "table", stats_table_div)
 )
+plot_card <- function(header, ...) {
+  card(
+    full_screen = TRUE,
+    card_header(header, class = "bg-dark"),
+    card_body(..., min_height = 150)
+  )
+}
+
+
+if (input$plot_interactive_min_max == TRUE) {
+page_fillable(
+  layout_columns(
+    plot_card("Plot", p),
+    plot_card("Dynamic Min Max (based on plot zoom)",stats_table_div )
+  ),
+)
+} else {p}
+
 )---"
 
 # NOTE: The complete interactive template includes:
