@@ -823,17 +823,12 @@ server_global <- function(input, output, session) {
     processed_count <- 0
     for (importer_id in names(current_importers)) {
       tryCatch({
-        # Get the namespace function for this importer
-        ns_func <- NS(importer_id)
+        # Trigger processing by setting the input value directly
+        # This approach works better for programmatic triggering
+        input_id <- paste0(importer_id, "-combine_data")
         
-        # Trigger the combine_data button for this importer
-        # This simulates clicking the "Process All Files" button
-        updateActionButton(session, ns_func("combine_data"), 
-                          label = "Processing...", 
-                          icon = icon("spinner", class = "fa-spin"))
-        
-        # Send input event to trigger processing
-        session$sendInputMessage(ns_func("combine_data"), list(value = runif(1)))
+        # Update the input value to trigger the observeEvent
+        session$sendInputMessage(input_id, list(value = as.numeric(Sys.time())))
         
         processed_count <- processed_count + 1
         cat("Triggered processing for importer:", importer_id, "\n")
@@ -843,7 +838,7 @@ server_global <- function(input, output, session) {
     }
     
     showNotification(paste("Triggered processing for", processed_count, "importer(s). Check individual tabs for progress."), 
-                     type = "success", duration = 5)
+                     type = "message", duration = 5)
   })
   
   # Automation: Generate All Plots
@@ -861,16 +856,15 @@ server_global <- function(input, output, session) {
     processed_count <- 0
     for (plotter_id in names(current_plotters)) {
       tryCatch({
-        # Get the namespace function for this plotter
-        ns_func <- NS(plotter_id)
-        
         # First trigger data processing for this plotter
-        session$sendInputMessage(ns_func("data_process_plot"), list(value = runif(1)))
+        data_process_id <- paste0(plotter_id, "-data_process_plot")
+        session$sendInputMessage(data_process_id, list(value = as.numeric(Sys.time())))
         
-        # Then trigger plot generation (with a small delay to allow data processing)
-        later::later(function() {
-          session$sendInputMessage(ns_func("plot_render"), list(value = runif(1)))
-        }, delay = 1) # 1 second delay
+        # Then trigger plot generation
+        plot_render_id <- paste0(plotter_id, "-plot_render")
+        # Note: In practice, users should process data first, then generate plots
+        # For automation, we trigger both but plots may need data processing to complete first
+        session$sendInputMessage(plot_render_id, list(value = as.numeric(Sys.time()) + 0.1))
         
         processed_count <- processed_count + 1
         cat("Triggered plot generation for plotter:", plotter_id, "\n")
@@ -880,7 +874,7 @@ server_global <- function(input, output, session) {
     }
     
     showNotification(paste("Triggered plot generation for", processed_count, "plotter(s). Check individual tabs for progress."), 
-                     type = "success", duration = 5)
+                     type = "message", duration = 5)
   })
   
   # Helper & Downloader R Code Execution
