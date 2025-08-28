@@ -221,7 +221,7 @@ ui_plotter <- function(id) {
                   "Table (DT)" = "table",
                   "Text Summary" = "text"
                 ),
-                selected = "interactive",
+                selected = "static",
                 inline = TRUE
               ) |> tooltip("Choose the type of output to generate")
             ),

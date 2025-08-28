@@ -18,8 +18,8 @@ ui_data_table_display <- function(id, r_code_on_df, title = NULL) {
         aceEditor_pre(
             ns("code_input"),
             value = r_code_on_df,
-            height = "300px",
-            maxLines = 20
+            # height = "500px",
+            maxLines = 50
         ),
         action_input_tip(
           ns("apply_code"), 
@@ -30,7 +30,8 @@ ui_data_table_display <- function(id, r_code_on_df, title = NULL) {
     ),
     card_body(
         padding = "0.25rem", # Reduced padding
-        uiOutput(ns("data_table")) # For datatable or other renderPrint outputs
+        style = "height: 100%; display: flex; flex-direction: column;",
+        uiOutput(ns("data_table"), style = "height: 100%; min-height: 300px;") # For datatable or other renderPrint outputs
     )
   )
 }

@@ -25,7 +25,7 @@ if (is.null(df)) {
     Count = .N,
     Missing_Values = sum(is.na(value))
   ), by = .(series)][order(series)]
-  datatable(summary_dt, options = list(scrollX = TRUE, pageLength = 10), rownames = FALSE, filter='top', class='compact stripe')
+  datatable(summary_dt, options = list(scrollX = TRUE, pageLength = 100), rownames = FALSE, filter='top', class='compact stripe')
 } else if (!is.null(df) && (is.data.frame(df) || is.data.table(df)) && nrow(df) > 0) {
   # Fallback if expected columns are not present but we have some data
   tryCatch({

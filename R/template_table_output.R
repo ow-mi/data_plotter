@@ -61,7 +61,7 @@ if (is.null(df) || nrow(df) == 0) {
     summary_table,
     options = list(
       scrollX = TRUE,
-      pageLength = 15,
+      pageLength = 100,
       searching = TRUE,
       lengthMenu = c(10, 15, 25, 50),
       columnDefs = list(list(className = 'dt-center', targets = '_all'))

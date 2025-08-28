@@ -1,4 +1,3 @@
-
 files <- list.files()
 
 # Loop through each file
@@ -36,6 +35,9 @@ library("skimr")
 library("htmlwidgets")
 library("spsComps")
 library("base64enc")
+library("paletteer")
+
+
 
 app <- shiny::shinyApp(
   ui = ui_global(),

@@ -639,7 +639,8 @@ server_global <- function(input, output, session) {
   data_combiner <- tryCatch({
     server_data_combiner(
       "combiner", 
-      list_of_df_reactives_for_combiner
+      list_of_df_reactives_for_combiner,
+      main_session_input = input
     )
   }, error = function(e) {
     cat("Note: data_combiner module skipped (not in Shiny session)\n")

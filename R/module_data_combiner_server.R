@@ -1,9 +1,114 @@
-server_data_combiner <- function(id, list_of_importer_df_reactives) {
+server_data_combiner <- function(id, list_of_importer_df_reactives, main_session_input = NULL) {
   moduleServer(id, function(input, output, session) {
     
-    # Reactive values for filtering
-    filter_applied <- reactiveVal(FALSE)
-    filtered_data <- reactiveVal(NULL)
+    # Reactive values for processed data
+    processed_data <- reactiveVal(NULL)
+    processing_status <- reactiveVal("No processing applied")
+    
+    # Helper function to create processing environment
+    create_processing_environment <- function(raw_data, input_obj, main_session_input) {
+      env <- new.env(parent = globalenv())
+      env$df <- raw_data
+      env$input <- input_obj
+      env$data.table <- data.table
+      env$setDT <- data.table::setDT
+      env$copy <- data.table::copy
+      env$filter_in <- filter_in
+      env$filter_out <- filter_out
+      env$rname <- rname
+      env$string_eval <- string_eval
+      if (!is.null(main_session_input)) {
+        env$main_session_input <- main_session_input
+      }
+      return(env)
+    }
+    
+    # Helper function to parse batch filters and expand code blocks
+    parse_batch_filters <- function(filter_string, df_for_eval) {
+      if (is.null(filter_string) || trimws(filter_string) == "") {
+        return(list(""))
+      }
+      
+      # Split by semicolon first to get individual filter runs
+      filter_runs <- strsplit(filter_string, ";")[[1]]
+      filter_runs <- trimws(filter_runs)
+      filter_runs <- filter_runs[filter_runs != ""]
+      
+      if (length(filter_runs) <= 1) {
+        # Check if we have code blocks that need expansion
+        return(expand_code_blocks(filter_string, df_for_eval))
+      }
+      
+      # Multiple runs - expand each one and create combinations
+      expanded_runs <- list()
+      for (run in filter_runs) {
+        expanded <- expand_code_blocks(run, df_for_eval)
+        expanded_runs <- c(expanded_runs, expanded)
+      }
+      
+      return(expanded_runs)
+    }
+    
+    # Helper function to expand code blocks in filter strings
+    expand_code_blocks <- function(filter_string, df_for_eval) {
+      if (is.null(filter_string) || trimws(filter_string) == "") {
+        return(list(""))
+      }
+      
+      # Create evaluation environment
+      eval_env <- new.env(parent = globalenv())
+      eval_env$df <- df_for_eval
+      
+      # Find all quoted code blocks
+      quoted_pattern <- '["\']([^"\']*)["\']'
+      matches <- gregexpr(quoted_pattern, filter_string, perl = TRUE)
+      match_data <- regmatches(filter_string, matches)[[1]]
+      
+      if (length(match_data) == 0) {
+        # No code blocks, return as is
+        return(list(filter_string))
+      }
+      
+      # Process each quoted code block and expand
+      expanded_combinations <- list(filter_string)
+      
+      for (quoted_code in match_data) {
+        # Remove quotes to get the actual code
+        code <- gsub('^["\']|["\']$', '', quoted_code)
+        
+        tryCatch({
+          # Evaluate the code
+          eval_result <- eval(parse(text = code), envir = eval_env)
+          
+          if (is.vector(eval_result) && length(eval_result) > 1) {
+            # Expand combinations for multiple values
+            new_combinations <- list()
+            for (combination in expanded_combinations) {
+              for (value in eval_result) {
+                new_combo <- gsub(pattern = fixed(quoted_code), 
+                                replacement = as.character(value), 
+                                x = combination, fixed = TRUE)
+                new_combinations <- c(new_combinations, list(new_combo))
+              }
+            }
+            expanded_combinations <- new_combinations
+          } else {
+            # Single value, just replace
+            for (i in seq_along(expanded_combinations)) {
+              expanded_combinations[[i]] <- gsub(pattern = fixed(quoted_code), 
+                                                replacement = as.character(eval_result), 
+                                                x = expanded_combinations[[i]], fixed = TRUE)
+            }
+          }
+          
+        }, error = function(e) {
+          # If evaluation fails, leave the code block as is
+          warning(paste("Failed to evaluate code block:", code, "Error:", e$message))
+        })
+      }
+      
+      return(expanded_combinations)
+    }
     
     combined_data_from_all_importers <- reactive({
       
@@ -23,6 +128,21 @@ server_data_combiner <- function(id, list_of_importer_df_reactives) {
         list_of_importer_df_reactives() # Call the reactive to get the list
       } else {
         list_of_importer_df_reactives # Use the static list directly
+      }
+      
+      # Debug: Log information about available reactives
+      cat("DEBUG: current_reactives length:", length(current_reactives), "\n")
+      if (length(current_reactives) > 0) {
+        for (i in seq_along(current_reactives)) {
+          reactive_fn <- current_reactives[[i]]
+          if (is.function(reactive_fn)) {
+            df_result <- reactive_fn()
+            cat("DEBUG: Reactive", i, "- is.null:", is.null(df_result), 
+                "- nrow:", if (!is.null(df_result)) nrow(df_result) else "N/A", "\n")
+          } else {
+            cat("DEBUG: Reactive", i, "- not a function\n")
+          }
+        }
       }
       
       # Handle empty list case
@@ -77,12 +197,8 @@ server_data_combiner <- function(id, list_of_importer_df_reactives) {
             idcol = "source_importer_id"
           )
           
-          # Apply filters if they are active
-          if (filter_applied()) {
-            return(filtered_data())
-          } else {
-            return(combined_df)
-          }
+          # Return the combined data frame
+          return(combined_df)
           
         }, error = function(e) {
           warning("Error in rbindlist: ", e$message, ". Trying with ignore.attr=TRUE")
@@ -96,11 +212,7 @@ server_data_combiner <- function(id, list_of_importer_df_reactives) {
               ignore.attr = TRUE  # This handles class attribute mismatches
             )
             
-            if (filter_applied()) {
-              return(filtered_data())
-            } else {
-              return(combined_df)
-            }
+            return(combined_df)
           }, error = function(e2) {
             warning("Even fallback rbindlist failed: ", e2$message)
             return(NULL)
@@ -111,225 +223,177 @@ server_data_combiner <- function(id, list_of_importer_df_reactives) {
       }
     })
     
-    # Update source filter checkboxes when combined data changes
-    observe({
-      base_data <- combined_data_from_all_importers()
-      
-      if (!is.null(base_data) && nrow(base_data) > 0 && 'source_importer_id' %in% names(base_data)) {
-        # Get unique source IDs
-        unique_sources <- unique(base_data$source_importer_id)
-        
-        if (length(unique_sources) > 0) {
-          # Create mapping from module IDs to friendly names
-          source_labels <- sapply(unique_sources, function(source_id) {
-            # Convert data_import_module_1 to "Data Import 1"
-            if (grepl("^data_import_module_", source_id)) {
-              tab_number <- gsub("data_import_module_", "", source_id)
-              paste("Data Import", tab_number)
-            } else if (grepl("^importer_", source_id)) {
-              tab_number <- gsub("importer_", "", source_id)
-              paste("Importer", tab_number)
-            } else {
-              # Fallback for other naming patterns
-              source_id
-            }
-          })
-          
-          # Generate checkboxes
-          checkbox_list <- lapply(seq_along(unique_sources), function(i) {
-            source_id <- unique_sources[i]
-            label <- source_labels[i]
-            
-            div(class = "form-check form-check-inline",
-              tags$input(
-                type = "checkbox",
-                class = "form-check-input",
-                id = session$ns(paste0("source_", source_id)),
-                value = source_id,
-                checked = "checked" # Default to all sources selected
-              ),
-              tags$label(
-                class = "form-check-label small",
-                `for` = session$ns(paste0("source_", source_id)),
-                label
-              )
-            )
-          })
-          
-          # Update the UI
-          output$source_filter_checkboxes <- renderUI({
-            tagList(checkbox_list)
-          })
-        }
-      } else {
-        # No data available
-        output$source_filter_checkboxes <- renderUI({
-          p(class = "text-muted small", "No data sources available yet")
-        })
-      }
-    })
-    
-    # Apply filters to combined data
+    # Process data when "Apply Filters" button is pressed
     observeEvent(input$apply_combiner_filters, {
-      base_data <- combined_data_from_all_importers()
+      # Get the raw combined data
+      raw_data <- combined_data_from_all_importers()
       
-      if (is.null(base_data)) {
-        showNotification("No data available to filter", type = "warning")
+      # Get the processing code from ace editor
+      processing_code <- input$r_code_combined_data_processing
+      
+      # Get the custom filter for batch processing
+      custom_filter <- input$custom_filter
+      
+      # Debug information
+      if (is.null(raw_data)) {
+        showNotification("Debug: raw_data is NULL. Check if importers have processed data.", type = "warning", duration = 10)
+        processing_status("No data available - raw_data is NULL")
+        return()
+      } else if (nrow(raw_data) == 0) {
+        showNotification(paste("Debug: raw_data exists but has 0 rows. Columns:", paste(names(raw_data), collapse = ", ")), type = "warning", duration = 10)
+        processing_status("No data available - raw_data has 0 rows")
+        return()
+      } else {
+        showNotification(paste("Debug: Found", nrow(raw_data), "rows,", ncol(raw_data), "columns"), type = "message", duration = 5)
+      }
+      
+      if (is.null(processing_code) || trimws(processing_code) == "") {
+        showNotification("No processing code provided", type = "warning")
+        processing_status("No code provided")
         return()
       }
       
-      filtered_df <- data.table::copy(base_data)
+      # Show processing notification
+      showNotification("Processing data with ace editor code...", type = "message", duration = 3)
+      processing_status("Processing...")
       
       tryCatch({
-        # Apply source filtering using checkboxes
-        if ('source_importer_id' %in% names(filtered_df)) {
-          # Get all unique sources
-          unique_sources <- unique(filtered_df$source_importer_id)
+        # Handle batch runs by splitting semicolon-separated entries
+        filter_runs <- parse_batch_filters(custom_filter, raw_data)
+        
+        if (length(filter_runs) <= 1) {
+          # Single run - process normally
+          env <- create_processing_environment(raw_data, input, main_session_input)
+          processed_df <- eval(parse(text = processing_code), envir = env)
           
-          # Check which sources are selected
-          selected_sources <- c()
-          for (source_id in unique_sources) {
-            checkbox_id <- paste0("source_", source_id)
-            if (!is.null(input[[checkbox_id]]) && input[[checkbox_id]]) {
-              selected_sources <- c(selected_sources, source_id)
-            }
-          }
-          
-          # Filter data by selected sources
-          if (length(selected_sources) > 0) {
-            filtered_df <- filtered_df[source_importer_id %in% selected_sources]
+          if (!is.null(processed_df) && (is.data.frame(processed_df) || is.data.table(processed_df))) {
+            setDT(processed_df)
+            processed_data(processed_df)
+            processing_status(paste("Processed successfully -", format(nrow(processed_df), big.mark = ","), "rows"))
+            showNotification(paste("Processing complete:", format(nrow(processed_df), big.mark = ","), "rows"), type = "message")
           } else {
-            # If no sources selected, show warning and use all data
-            showNotification("No sources selected - using all data", type = "warning")
+            warning("Processing code did not return a valid data frame")
+            processed_data(raw_data)
+            processing_status("Code returned invalid result - using raw data")
+            showNotification("Processing code did not return valid data. Using raw data.", type = "warning")
           }
-        }
-        
-        # Apply series filtering - Include Series
-        if (!is.null(input$combiner_filter_in_series) && input$combiner_filter_in_series != "" && "series" %in% names(filtered_df)) {
-          filtered_df <- filter_in(filtered_df, 'series', input$combiner_filter_in_series)
-        }
-        
-        # Apply series filtering - Exclude Series
-        if (!is.null(input$combiner_filter_out_series) && input$combiner_filter_out_series != "" && "series" %in% names(filtered_df)) {
-          filtered_df <- filter_out(filtered_df, 'series', input$combiner_filter_out_series)
-        }
-        
-        # Apply file filtering - Include Files
-        if (!is.null(input$combiner_filter_in_files) && input$combiner_filter_in_files != "" && "file_name_source" %in% names(filtered_df)) {
-          filtered_df <- filter_in(filtered_df, 'file_name_source', input$combiner_filter_in_files)
-        }
-        
-        # Apply file filtering - Exclude Files
-        if (!is.null(input$combiner_filter_out_files) && input$combiner_filter_out_files != "" && "file_name_source" %in% names(filtered_df)) {
-          filtered_df <- filter_out(filtered_df, 'file_name_source', input$combiner_filter_out_files)
-        }
-        
-        # Apply timestamp filtering
-        if ('timestamp' %in% names(filtered_df)) {
-          # Start time filtering
-          if (!is.null(input$combiner_filter_start_enabled) && input$combiner_filter_start_enabled) {
-            if (!is.null(input$combiner_filter_start_date) && !is.null(input$combiner_filter_start_time)) {
-              start_datetime <- as.POSIXct(paste(
-                as.character(input$combiner_filter_start_date), 
-                format(input$combiner_filter_start_time, '%H:%M:%S')
-              ))
-              
-              if (!is.na(start_datetime)) {
-                filtered_df <- filtered_df[timestamp >= start_datetime]
-              }
+        } else {
+          # Multiple runs - batch processing
+          batch_results <- list()
+          
+          for (i in seq_along(filter_runs)) {
+            # Create modified input for this run
+            modified_input <- as.list(input)
+            modified_input$custom_filter <- filter_runs[[i]]
+            
+            env <- create_processing_environment(raw_data, modified_input, main_session_input)
+            run_result <- eval(parse(text = processing_code), envir = env)
+            
+            if (!is.null(run_result) && (is.data.frame(run_result) || is.data.table(run_result))) {
+              setDT(run_result)
+              run_result[, batch_run := i]  # Add batch run identifier
+              batch_results[[i]] <- run_result
             }
           }
           
-          # End time filtering
-          if (!is.null(input$combiner_filter_end_enabled) && input$combiner_filter_end_enabled) {
-            if (!is.null(input$combiner_filter_end_date) && !is.null(input$combiner_filter_end_time)) {
-              end_datetime <- as.POSIXct(paste(
-                as.character(input$combiner_filter_end_date), 
-                format(input$combiner_filter_end_time, '%H:%M:%S')
-              ))
-              
-              if (!is.na(end_datetime)) {
-                filtered_df <- filtered_df[timestamp <= end_datetime]
-              }
-            }
+          # Combine all batch results
+          if (length(batch_results) > 0) {
+            combined_batch_df <- rbindlist(batch_results, use.names = TRUE, fill = TRUE)
+            processed_data(combined_batch_df)
+            processing_status(paste("Batch processed successfully -", length(filter_runs), "runs,", format(nrow(combined_batch_df), big.mark = ","), "total rows"))
+            showNotification(paste("Batch processing complete:", length(filter_runs), "runs,", format(nrow(combined_batch_df), big.mark = ","), "rows"), type = "message")
+          } else {
+            processed_data(raw_data)
+            processing_status("Batch processing failed - using raw data")
+            showNotification("Batch processing failed. Using raw data.", type = "warning")
           }
         }
-        
-        filtered_data(filtered_df)
-        filter_applied(TRUE)
-        
-        showNotification(paste("Filters applied. Showing", nrow(filtered_df), "of", nrow(base_data), "rows"), type = "message")
         
       }, error = function(e) {
-        showNotification(paste("Filter error:", e$message), type = "error")
-        return()
+        warning("Error in processing code: ", e$message)
+        processed_data(raw_data)
+        processing_status(paste("Error:", e$message))
+        showNotification(paste("Processing error:", e$message), type = "error")
       })
     })
     
-    # Clear filters
-    observeEvent(input$clear_combiner_filters, {
-      filter_applied(FALSE)
-      filtered_data(NULL)
+    # Manual data check button
+    observeEvent(input$refresh_data_check, {
+      # Force refresh of the reactive to see debug output
+      raw_data <- combined_data_from_all_importers()
       
-      # Clear input fields
-      updateTextInput(session, "combiner_filter_in_series", value = "")
-      updateTextInput(session, "combiner_filter_out_series", value = "")
-      updateTextInput(session, "combiner_filter_in_files", value = "")
-      updateTextInput(session, "combiner_filter_out_files", value = "")
-      
-      # Clear timestamp filtering
-      updateCheckboxInput(session, "combiner_filter_start_enabled", value = FALSE)
-      updateCheckboxInput(session, "combiner_filter_end_enabled", value = FALSE)
-      updateDateInput(session, "combiner_filter_start_date", value = Sys.Date())
-      updateDateInput(session, "combiner_filter_end_date", value = Sys.Date())
-      
-      # Reset all source checkboxes to checked
-      base_data <- combined_data_from_all_importers()
-      if (!is.null(base_data) && 'source_importer_id' %in% names(base_data)) {
-        unique_sources <- unique(base_data$source_importer_id)
-        for (source_id in unique_sources) {
-          checkbox_id <- paste0("source_", source_id)
-          updateCheckboxInput(session, checkbox_id, value = TRUE)
-        }
+      # Get current reactives info
+      current_reactives <- if (is.function(list_of_importer_df_reactives)) {
+        list_of_importer_df_reactives()
+      } else {
+        list_of_importer_df_reactives
       }
       
-      showNotification("Filters cleared - showing all data", type = "message")
+      # Show detailed info
+      if (length(current_reactives) == 0) {
+        showNotification("No importer modules found. Create Data Import tabs first.", type = "warning", duration = 10)
+      } else {
+        msg <- paste("Found", length(current_reactives), "importer(s).")
+        if (is.null(raw_data)) {
+          msg <- paste(msg, "But combined data is NULL. Check console for debug info.")
+        } else if (nrow(raw_data) == 0) {
+          msg <- paste(msg, "Combined data has 0 rows.")
+        } else {
+          msg <- paste(msg, "Combined data has", nrow(raw_data), "rows.")
+        }
+        showNotification(msg, type = "message", duration = 10)
+      }
     })
     
-    # Clear all data
-    observeEvent(input$clear_combined_data, {
-      # This is a more complex operation that would need to clear data from all importers
-      # For now, we'll show a confirmation and clear filters
-      showModal(modalDialog(
-        title = "Clear All Data",
-        "This will clear all processed data from all import modules. Are you sure?",
-        footer = tagList(
-          modalButton("Cancel"),
-          actionButton("confirm_clear_data", "Yes, Clear All", class = "btn-danger")
-        )
-      ))
+    # Reactive to return the current data (processed if available, otherwise raw)
+    current_display_data <- reactive({
+      processed <- processed_data()
+      if (!is.null(processed)) {
+        return(processed)
+      } else {
+        return(combined_data_from_all_importers())
+      }
     })
+    
+
+    
+
+    
+
     
     # Status display
     output$combiner_status <- renderText({
-      data <- combined_data_from_all_importers()
+      raw_data <- combined_data_from_all_importers()
+      processed <- processed_data()
+      status <- processing_status()
       
-      if (is.null(data)) {
-        "Status: No data available"
+      if (is.null(raw_data)) {
+        paste0(
+          "Status: ", status, "\n",
+          "Raw data: NULL\n",
+          "Tip: Process data in Data Import tabs first"
+        )
+      } else if (nrow(raw_data) == 0) {
+        paste0(
+          "Status: ", status, "\n",
+          "Raw data: 0 rows (", ncol(raw_data), " columns)\n",
+          "Tip: Process data in Data Import tabs first"
+        )
       } else {
-        total_rows <- nrow(data)
-        unique_sources <- length(unique(data$source_importer_id))
-        unique_files <- if ("file_name_source" %in% names(data)) {
-          length(unique(data$file_name_source))
+        raw_rows <- nrow(raw_data)
+        processed_rows <- if (!is.null(processed)) nrow(processed) else 0
+        
+        unique_sources <- length(unique(raw_data$source_importer_id))
+        unique_files <- if ("file_name_source" %in% names(raw_data)) {
+          length(unique(raw_data$file_name_source))
         } else {
           "N/A"
         }
         
-        filter_status <- if (filter_applied()) "Filtered" else "All data"
-        
         paste0(
-          "Status: ", filter_status, "\n",
-          "Rows: ", format(total_rows, big.mark = ","), "\n",
+          "Status: ", status, "\n",
+          "Raw rows: ", format(raw_rows, big.mark = ","), "\n",
+          if (processed_rows > 0) paste0("Processed rows: ", format(processed_rows, big.mark = ","), "\n") else "",
           "Sources: ", unique_sources, "\n",
           "Files: ", unique_files
         )
@@ -338,33 +402,33 @@ server_data_combiner <- function(id, list_of_importer_df_reactives) {
 
     server_data_table_display(
       "combined_data_sample",
-      reactive(combined_data_from_all_importers())
+      current_display_data
     )
     server_data_table_display(
       "combined_data_summary",
-      reactive(combined_data_from_all_importers())
+      current_display_data
     )
     
     # Additional data table displays for new tabs
     server_data_table_display(
       "combined_data_file_info",
-      reactive(combined_data_from_all_importers())
+      current_display_data
     )
     server_data_table_display(
       "combined_data_quality",
-      reactive(combined_data_from_all_importers())
+      current_display_data
     )
     server_data_table_display(
       "combined_data_columns",
-      reactive(combined_data_from_all_importers())
+      current_display_data
     )
     server_data_table_display(
       "combined_data_log",
-      reactive(combined_data_from_all_importers())
+      current_display_data
     )
 
     list(
-      df = reactive(combined_data_from_all_importers())
+      df = current_display_data
     )
   })
 }

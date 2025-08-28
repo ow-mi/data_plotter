@@ -19,10 +19,16 @@ if (is.null(df)) {
   setDT(df)
   sample_size <- min(nrow(df), 100)
   datatable(df[sample(.N, sample_size)], 
-                options = list(scrollX = TRUE, scrollY = '400px', pageLength = 10, searching = TRUE), 
+                options = list(
+                scrollX = TRUE, 
+                # scrollY = '400px', 
+                pageLength = 100, 
+                searching = TRUE
+                ), 
                 rownames = FALSE, 
                 filter='top', 
-                class='compact stripe')
+                class='compact stripe'
+                )
 } else {
   data.frame(
     Message = 'Data processed but empty. Check processing settings.'

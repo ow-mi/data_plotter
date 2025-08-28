@@ -8,7 +8,12 @@ DT_head <- "# R code to display a table.
 # datatable(head(df, 100), options = list(scrollX = TRUE, pageLength = 5), rownames = FALSE, filter = 'top', class='compact stripe')
 if (is.data.frame(df) || is.data.table(df)) {
   datatable(head(df, 100), 
-                options = list(scrollX = TRUE, scrollY = '300px', pageLength = 10, searching = TRUE, lengthMenu = c(10, 25, 50, 100)), 
+                options = list(scrollX = TRUE, 
+                # scrollY = '300px', 
+                pageLength = 100, 
+                searching = TRUE, 
+                lengthMenu = c(10, 25, 50, 100)
+                ), 
                 rownames = FALSE, 
                 filter = 'none', # 'top' can be slow for wide tables
                 class='compact stripe hover cell-border', 

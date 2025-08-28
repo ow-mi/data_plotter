@@ -17,134 +17,76 @@ ui_data_combiner <- function(id) {
           )
         ),
         
-        # Filtering Controls
+        # Enhanced Filtering Controls
         div(class = "mb-3",
-          h6("Data Filtering", class = "text-muted mb-2"),
-          textInput(
-            ns("combiner_filter_in_series"),
-            "Include Series (regex)",
-            placeholder = "e.g., temp.*|pressure",
-            width = "100%"
-          ) |> tooltip("Regex pattern to include only matching series"),
+          h6("Smart Data Filtering", class = "text-muted mb-2"),
+          p(class = "text-muted small mb-2", 
+            "Format: column:value1;value2 | column:valueA;valueB"
+          ),
+          p(class = "text-muted small mb-3", 
+            'Use quotes for dynamic evaluation: dut:"df[,unique(dut)]"'
+          ),
           
-          textInput(
-            ns("combiner_filter_out_series"),
-            "Exclude Series (regex)", 
-            placeholder = "e.g., debug|test",
-            width = "100%"
-          ) |> tooltip("Regex pattern to exclude matching series"),
+          textAreaInput(
+            ns("custom_filter"),
+            "Filtering",
+            placeholder = 'dut:"df[,unique(dut)]" | run:1;2;3 | series:temp.*',
+            width = "100%",
+            height = "80px"
+          ) |> tooltip("
+          # Syntax: col1: valA, -valB | col2: valC
+          # - `|` separates filters for different columns.
+          # - `:` separates a column from its values.
+          # - `,` separates multiple values for the same column.
+          # - `-` prefix excludes a value.
+          # - Use single/double quotes for dynamic evaluation: dut:'df[,unique(dut)]'
+          "),
           
-          textInput(
-            ns("combiner_filter_in_files"),
-            "Include Files (regex)",
-            placeholder = "e.g., experiment.*\\.csv",
-            width = "100%"
-          ) |> tooltip("Regex pattern to include only matching files"),
-          
-          textInput(
-            ns("combiner_filter_out_files"),
-            "Exclude Files (regex)", 
-            placeholder = "e.g., debug.*|test.*",
-            width = "100%"
-          ) |> tooltip("Regex pattern to exclude matching files"),
           
           div(class = "row g-1 mt-2",
-            div(class = "col-6",
+            div(class = "col-8",
               actionButton(
                 ns("apply_combiner_filters"),
-                "Apply Filters",
+                "Process Data with Code",
                 class = "btn-primary btn-sm w-100",
-                icon = icon("filter")
+                icon = icon("play")
               )
             ),
-            div(class = "col-6", 
+            div(class = "col-4",
               actionButton(
-                ns("clear_combiner_filters"),
-                "Clear Filters",
-                class = "btn-outline-secondary btn-sm w-100",
-                icon = icon("eraser")
+                ns("refresh_data_check"),
+                "Check Data",
+                class = "btn-outline-info btn-sm w-100",
+                icon = icon("refresh")
               )
             )
           )
         ),
         
-        # Source Selection
+        # Status Display
         div(class = "mb-3",
-          h6("Source Selection", class = "text-muted mb-2"),
-          uiOutput(ns("source_filter_checkboxes"))
-        ),
-        
-        # Time Range Filtering
-        div(class = "mb-3",
-          h6("Time Range Filtering", class = "text-muted mb-2"),
-          
-          # Start Time Filtering
-          checkboxInput(
-            ns("combiner_filter_start_enabled"),
-            "Enable Start Time Filter",
-            value = FALSE
-          ),
-          
-          conditionalPanel(
-            condition = paste0("input['", ns("combiner_filter_start_enabled"), "']"),
-            dateInput(
-              ns("combiner_filter_start_date"),
-              "Start Date",
-              width = "100%"
-            ),
-            timeInput(
-              ns("combiner_filter_start_time"),
-              "Start Time",
-              value = strptime("00:00:00", "%T")
-            )
-          ),
-          
-          # End Time Filtering
-          div(class = "mt-2",
-            checkboxInput(
-              ns("combiner_filter_end_enabled"),
-              "Enable End Time Filter",
-              value = FALSE
-            ),
-            
-            conditionalPanel(
-              condition = paste0("input['", ns("combiner_filter_end_enabled"), "']"),
-              dateInput(
-                ns("combiner_filter_end_date"),
-                "End Date",
-                width = "100%"
-              ),
-              timeInput(
-                ns("combiner_filter_end_time"),
-                "End Time",
-                value = strptime("23:59:59", "%T")
-              )
-            )
-          )
-        ),
-        
-        # Data Management
-        div(class = "mb-3",
-          h6("Data Management", class = "text-muted mb-2"),
-          actionButton(
-            "clear_combined_data",
-            "Clear All Data",
-            class = "btn-danger btn-sm w-100",
-            icon = icon("trash")
-          ) |> tooltip("Remove all data from importers and clear combined dataset"),
-          
-          div(class = "mt-2",
-            verbatimTextOutput("combiner_status", placeholder = TRUE)
-          )
+          h6("Status", class = "text-muted mb-2"),
+          verbatimTextOutput("combiner_status", placeholder = TRUE)
         )
       ),
-      navset_card_pill(
+      
+      # Main content with right sidebar for ace editor (similar to plotter)
+      layout_sidebar(
+        sidebar = sidebar(
+          title = "Processing Code",
+          width = 600,
+          position = "right",
+          aceEditor_pre(ns("r_code_combined_data_processing"), value = r_code_combined_data_processing_template),
+          open = FALSE
+        ),
+        
+        navset_card_pill(
         nav_panel(
           "Summary",
           icon = icon("chart-bar"),
           ui_data_table_display(
             ns("combined_data_summary"),
-            r_code_on_df = if (exists("r_code_combined_data_summary")) r_code_combined_data_summary else "# Default summary code\nif (is.null(df) || nrow(df) == 0) {\n  data.frame(Message = 'No data available') |> \n    datatable(options = list(dom = 't'), rownames = FALSE, class = 'compact')\n} else {\n  summary_df <- df[, .(\n    Records = .N,\n    Min_Value = min(value, na.rm = TRUE),\n    Max_Value = max(value, na.rm = TRUE),\n    Mean_Value = mean(value, na.rm = TRUE)\n  ), by = .(Series = series)]\n  \n  datatable(summary_df, \n    options = list(scrollX = TRUE, pageLength = 15), \n    rownames = FALSE, class = 'compact stripe'\n  )\n}"
+            r_code_on_df = if (exists("r_code_combined_data_summary")) r_code_combined_data_summary else "# Default summary code\nif (is.null(df) || nrow(df) == 0) {\n  data.frame(Message = 'No data available') |> \n    datatable(options = list(dom = 't'), rownames = FALSE, class = 'compact')\n} else {\n  summary_df <- df[, .(\n    Records = .N,\n    Min_Value = min(value, na.rm = TRUE),\n    Max_Value = max(value, na.rm = TRUE),\n    Mean_Value = mean(value, na.rm = TRUE)\n  ), by = .(Series = series)]\n  \n  datatable(summary_df, \n    options = list(scrollX = TRUE, pageLength = 100), \n    rownames = FALSE, class = 'compact stripe'\n  )\n}"
           )
         ),
         nav_panel(
@@ -152,7 +94,7 @@ ui_data_combiner <- function(id) {
           icon = icon("table"),
           ui_data_table_display(
             ns("combined_data_sample"),
-            r_code_on_df = if (exists("r_code_combined_data_sample")) r_code_combined_data_sample else "# Default sample code\nif (is.null(df) || nrow(df) == 0) {\n  data.frame(Message = 'No data available') |> \n    datatable(options = list(dom = 't'), rownames = FALSE, class = 'compact')\n} else {\n  sample_df <- head(df, 100)\n  datatable(sample_df, \n    options = list(scrollX = TRUE, pageLength = 10), \n    rownames = FALSE, class = 'compact stripe'\n  )\n}"
+            r_code_on_df = if (exists("r_code_combined_data_sample")) r_code_combined_data_sample else "# Default sample code\nif (is.null(df) || nrow(df) == 0) {\n  data.frame(Message = 'No data available') |> \n    datatable(options = list(dom = 't'), rownames = FALSE, class = 'compact')\n} else {\n  sample_df <- head(df, 100)\n  datatable(sample_df, \n    options = list(scrollX = TRUE, pageLength = 100), \n    rownames = FALSE, class = 'compact stripe'\n  )\n}"
           )
         ),
         nav_panel(
@@ -178,7 +120,7 @@ if (is.null(df) || nrow(df) == 0) {
   ), by = .(File = file_name_source)][order(-Records)]
   
   datatable(file_info, 
-    options = list(scrollX = TRUE, pageLength = 15, searching = TRUE), 
+    options = list(scrollX = TRUE, pageLength = 100, searching = TRUE), 
     rownames = FALSE, filter='top', class='compact stripe'
   )
 }
@@ -208,7 +150,7 @@ if (is.null(df) || nrow(df) == 0) {
   ), by = .(Series = series)][order(-Total_Points)]
   
   datatable(quality_metrics, 
-    options = list(scrollX = TRUE, pageLength = 15, searching = TRUE), 
+    options = list(scrollX = TRUE, pageLength = 100, searching = TRUE), 
     rownames = FALSE, filter='top', class='compact stripe'
   ) |> formatStyle('Missing_Percent', 
     backgroundColor = styleInterval(c(5, 20), c('lightgreen', 'yellow', 'lightcoral'))
@@ -244,7 +186,7 @@ if (is.null(df) || nrow(df) == 0) {
   )
   
   datatable(col_info, 
-    options = list(scrollX = TRUE, pageLength = 15, searching = FALSE), 
+    options = list(scrollX = TRUE, pageLength = 100, searching = FALSE), 
     rownames = FALSE, class='compact stripe'
   )
 }
@@ -281,14 +223,15 @@ if (is.null(df) || nrow(df) == 0) {
   )
   
   datatable(log_info, 
-    options = list(dom = 't', ordering = FALSE), 
+    options = list(dom = 't', ordering = FALSE, pageLength = 100), 
     rownames = FALSE, class='compact'
   )
 }
             "
           )
         )
-      )
+      ) # Close navset_card_pill
+    ) # Close layout_sidebar 
     )
   ) # Close module-container div
 }

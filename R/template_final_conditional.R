@@ -18,23 +18,19 @@ if (is.null(df) || nrow(df) == 0) {
   if (input$plot_type == 'text') {
     # Execute text template code and render as print
     if (exists('incProgress')) incProgress(0.1, detail = 'Generating text output...')
-    text_output <- eval(parse(text = text_code))
-    renderPrint({ text_output })
+     eval(parse(text = text_code))
   } else if (input$plot_type == 'static') {
     # Execute static template code and render as plot
     if (exists('incProgress')) incProgress(0.1, detail = 'Creating static plot...')
-    static_plot <- eval(parse(text = static_code))
-    renderPlot({ static_plot })
+    eval(parse(text = static_code))
   } else if (input$plot_type == 'interactive') {
     # Execute interactive template code and return plotly object directly
     if (exists('incProgress')) incProgress(0.1, detail = 'Building interactive plot...')
-    interactive_plot <- eval(parse(text = interactive_code))
-    renderUI({ interactive_plot })
+    eval(parse(text = interactive_code))
   } else if (input$plot_type == 'table') {
     # Execute table template code and render as DT
     if (exists('incProgress')) incProgress(0.1, detail = 'Creating data table...')
-    table_output <- eval(parse(text = table_code))
-    table_output # Return DT object directly
+    eval(parse(text = table_code))
   } else {
     # Fallback
     renderUI({
