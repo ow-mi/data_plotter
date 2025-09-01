@@ -1,0 +1,13 @@
+^renv$
+^renv\.lock$
+^dataPlotter\.Rproj$
+^\.Rproj\.user$
+^app\.R$
+^app_original\.R$
+^app_package\.R$
+^serve_local\.R$
+^tes$
+^\.git$
+^docs$
+^README\.md$
+^modules$
