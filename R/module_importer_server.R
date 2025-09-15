@@ -33,47 +33,77 @@ server_data_import <- function(id, global_files_reactive = NULL) { # Accept glob
     }, ignoreInit = TRUE) # Only trigger on user changes, not initial load
     
     # Handle adding filename extraction columns
-    observeEvent(input$add_extract_column, {
-      req(input$extract_column_name, input$extract_pattern)
-      
-      column_name <- trimws(input$extract_column_name)
-      pattern <- trimws(input$extract_pattern)
-      
-      if (column_name == "" || pattern == "") {
-        showNotification("Both column name and pattern are required.", type = "warning")
+    observeEvent(input$add_extract_columns, {
+      req(input$extract_columns_pattern)
+
+      pattern_input <- trimws(input$extract_columns_pattern)
+
+      if (pattern_input == "") {
+        showNotification("Please provide extraction patterns in format: col: regex | col: regex", type = "warning")
         return()
       }
-      
-      # Check if column name already exists
-      current_extractions <- filename_extractions()
-      if (column_name %in% current_extractions$column_name) {
-        showNotification(paste("Column", column_name, "already exists. Please use a different name."), type = "warning")
+
+      # Parse the input format: "col: regex | col: regex"
+      extraction_specs <- strsplit(pattern_input, "\\s*\\|\\s*")[[1]]
+      extraction_specs <- trimws(extraction_specs)
+
+      if (length(extraction_specs) == 0) {
+        showNotification("No valid extraction patterns found.", type = "warning")
         return()
       }
-      
-      # Test the regex pattern
-      tryCatch({
-        test_string <- "Thermal performance-MWC B10 Box21-Charging1-Box data-20250331_072751362__MWCU_Offboard_Temp.csv"
-        str_extract(test_string, pattern)
-      }, error = function(e) {
-        showNotification(paste("Invalid regex pattern:", e$message), type = "error")
-        return()
-      })
-      
-      # Add new extraction rule
-      new_extraction <- data.frame(
-        column_name = column_name,
-        pattern = pattern,
-        stringsAsFactors = FALSE
-      )
-      updated_extractions <- rbind(current_extractions, new_extraction)
-      filename_extractions(updated_extractions)
-      
-      # Clear inputs
-      updateTextInput(session, "extract_column_name", value = "")
-      updateTextInput(session, "extract_pattern", value = "")
-      
-      showNotification(paste("Added column extraction:", column_name), type = "message")
+
+      # Parse each extraction spec
+      new_extractions <- data.frame()
+
+      for (spec in extraction_specs) {
+        if (!grepl(":", spec)) {
+          showNotification(paste("Invalid format for:", spec, "- use 'column: pattern'"), type = "warning")
+          return()
+        }
+
+        parts <- strsplit(spec, ":", fixed = TRUE)[[1]]
+        if (length(parts) != 2) {
+          showNotification(paste("Invalid format for:", spec, "- use 'column: pattern'"), type = "warning")
+          return()
+        }
+
+        column_name <- trimws(parts[1])
+        pattern <- trimws(parts[2])
+
+        if (column_name == "" || pattern == "") {
+          showNotification(paste("Empty column name or pattern in:", spec), type = "warning")
+          return()
+        }
+
+        # Check for duplicate column names within this batch only
+        if (column_name %in% new_extractions$column_name) {
+          showNotification(paste("Duplicate column name within patterns:", column_name), type = "warning")
+          return()
+        }
+
+        # Test the regex pattern
+        tryCatch({
+          test_string <- "Thermal performance-MWC B10 Box21-Charging1-Box data-20250331_072751362__MWCU_Offboard_Temp.csv"
+          str_extract(test_string, pattern)
+        }, error = function(e) {
+          showNotification(paste("Invalid regex pattern in '", spec, "':", e$message), type = "error")
+          return()
+        })
+
+        # Add to new extractions
+        new_extractions <- rbind(new_extractions, data.frame(
+          column_name = column_name,
+          pattern = pattern,
+          stringsAsFactors = FALSE
+        ))
+      }
+
+      # Replace all extractions with new ones (no accumulation)
+      if (nrow(new_extractions) > 0) {
+        filename_extractions(new_extractions)
+
+        showNotification(paste("Updated", nrow(new_extractions), "extraction column(s)"), type = "message")
+      }
     })
     
     # Display current extractions

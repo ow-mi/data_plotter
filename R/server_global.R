@@ -116,6 +116,10 @@ server_global <- function(input, output, session) {
 
   observeEvent(input$template_upload, {
     req(input$template_upload)
+    
+    # Show loading notification immediately
+    showNotification("Loading template...", type = "message", duration = NULL, id = "template_loading")
+    
     tryCatch({
       # Load JSON template
       template_data <- jsonlite::fromJSON(input$template_upload$datapath, simplifyVector = FALSE)
@@ -125,6 +129,7 @@ server_global <- function(input, output, session) {
       
       # Validate template structure
       if (is.null(template_data$metadata) || is.null(template_data$inputs)) {
+        removeNotification("template_loading")
         showNotification("Invalid JSON template file structure", type = "error", duration = 10)
         return()
       }
@@ -139,22 +144,29 @@ server_global <- function(input, output, session) {
       
       cat("Modules needed - Importers:", importer_count_needed, "Plotters:", plotter_count_needed, "\n")
       
-      # Get current counts
-      current_importer_count <- isolate(importer_counter())
-      current_plotter_count <- isolate(plotter_counter())
+      # Get current counts once to avoid multiple isolate() calls
+      current_counts <- isolate(list(
+        importer = importer_counter(),
+        plotter = plotter_counter()
+      ))
       
-      cat("Current modules - Importers:", current_importer_count, "Plotters:", current_plotter_count, "\n")
+      cat("Current modules - Importers:", current_counts$importer, "Plotters:", current_counts$plotter, "\n")
       
-      # STEP 1: Create required importer modules
-      if (current_importer_count < importer_count_needed) {
-        tabs_to_create <- importer_count_needed - current_importer_count
+      # Update loading notification
+      showNotification(paste("Creating", importer_count_needed, "importers and", plotter_count_needed, "plotters..."), 
+                     type = "message", duration = NULL, id = "template_loading")
+      
+      # STEP 1: Create required importer modules (optimized)
+      if (current_counts$importer < importer_count_needed) {
+        tabs_to_create <- importer_count_needed - current_counts$importer
         cat("Creating", tabs_to_create, "additional importer tabs\n")
         
+        # Batch create importer modules
         for (i in 1:tabs_to_create) {
-          current_count <- isolate(importer_counter()) + 1
-          importer_counter(current_count)
+          current_count <- current_counts$importer + i
           import_id <- paste0("data_import_module_", current_count)
 
+          # Create UI first
           nav_insert(
             id = "mainmenu",
             target = "Combined Data",
@@ -168,9 +180,14 @@ server_global <- function(input, output, session) {
           
           # Initialize server module
           importer_module_output <- server_data_import(import_id, global_files)
+          
+          # Batch update instances
           current_instances <- importer_instances()
           current_instances[[import_id]] <- importer_module_output
           importer_instances(current_instances)
+          
+          # Update counter
+          importer_counter(current_count)
           
           # Observe tab rename trigger from this importer module
           observeEvent(importer_module_output$tab_rename_trigger(), {
@@ -188,19 +205,25 @@ server_global <- function(input, output, session) {
           })
           
           cat("Created importer:", import_id, "\n")
+          
+          # Small delay to prevent UI blocking
+          if (i %% 3 == 0) {
+            Sys.sleep(0.1)
+          }
         }
       }
       
-      # STEP 2: Create required plotter modules
-      if (current_plotter_count < plotter_count_needed) {
-        tabs_to_create <- plotter_count_needed - current_plotter_count
+      # STEP 2: Create required plotter modules (optimized)
+      if (current_counts$plotter < plotter_count_needed) {
+        tabs_to_create <- plotter_count_needed - current_counts$plotter
         cat("Creating", tabs_to_create, "additional plotter tabs\n")
         
+        # Batch create plotter modules
         for (i in 1:tabs_to_create) {
-          current_count <- isolate(plotter_counter()) + 1
-          plotter_counter(current_count)
+          current_count <- current_counts$plotter + i
           plot_id <- paste0("plotter_", current_count)
 
+          # Create UI first
           nav_insert(
             id = "mainmenu",
             target = "Analysis",
@@ -214,9 +237,14 @@ server_global <- function(input, output, session) {
           
           # Initialize server module
           plotter_module_output <- server_plotter(plot_id, data_combiner$df, input)
+          
+          # Batch update instances
           current_instances <- plotter_instances()
           current_instances[[plot_id]] <- plotter_module_output
           plotter_instances(current_instances)
+          
+          # Update counter
+          plotter_counter(current_count)
           
           # Observe plot rename trigger from this plotter module
           observeEvent(plotter_module_output$plot_rename_trigger(), {
@@ -234,17 +262,26 @@ server_global <- function(input, output, session) {
           })
           
           cat("Created plotter:", plot_id, "\n")
+          
+          # Small delay to prevent UI blocking
+          if (i %% 3 == 0) {
+            Sys.sleep(0.1)
+          }
         }
       }
+      
+      # Update loading notification
+      showNotification("Applying template settings...", type = "message", duration = NULL, id = "template_loading")
       
       # STEP 3: Apply inputs in order (modules are now ready)
       cat("Applying template inputs...\n")
       
-      # Helper function to safely update inputs
+      # Helper function to safely update inputs (optimized)
       safe_update_input <- function(input_id, value) {
         if (is.null(value)) return(FALSE)
         
         tryCatch({
+          # Cache current input value to avoid multiple isolate() calls
           current_val <- isolate(input[[input_id]])
           
           if (is.null(current_val)) {
@@ -279,11 +316,27 @@ server_global <- function(input, output, session) {
         })
       }
       
+      # Apply inputs in batches to prevent UI blocking
+      total_inputs <- length(template_data$inputs$general %||% list()) + 
+                     length(template_data$inputs$importers %||% list()) + 
+                     length(template_data$inputs$ace_editors %||% list()) + 
+                     length(template_data$inputs$plotters %||% list())
+      
+      inputs_processed <- 0
+      
       # Apply general inputs first
       if (!is.null(template_data$inputs$general)) {
         cat("Applying", length(template_data$inputs$general), "general inputs\n")
         for (input_id in names(template_data$inputs$general)) {
           safe_update_input(input_id, template_data$inputs$general[[input_id]])
+          inputs_processed <- inputs_processed + 1
+          
+          # Update progress every 10 inputs
+          if (inputs_processed %% 10 == 0) {
+            progress_pct <- round(inputs_processed / total_inputs * 100)
+            showNotification(paste("Applying settings...", progress_pct, "%"), 
+                           type = "message", duration = NULL, id = "template_loading")
+          }
         }
       }
       
@@ -292,6 +345,14 @@ server_global <- function(input, output, session) {
         cat("Applying", length(template_data$inputs$importers), "importer inputs\n")
         for (input_id in names(template_data$inputs$importers)) {
           safe_update_input(input_id, template_data$inputs$importers[[input_id]])
+          inputs_processed <- inputs_processed + 1
+          
+          # Update progress every 10 inputs
+          if (inputs_processed %% 10 == 0) {
+            progress_pct <- round(inputs_processed / total_inputs * 100)
+            showNotification(paste("Applying settings...", progress_pct, "%"), 
+                           type = "message", duration = NULL, id = "template_loading")
+          }
         }
       }
       
@@ -308,6 +369,14 @@ server_global <- function(input, output, session) {
               cat("  Failed to update ace editor", ace_id, ":", e$message, "\n")
             })
           }
+          inputs_processed <- inputs_processed + 1
+          
+          # Update progress every 10 inputs
+          if (inputs_processed %% 10 == 0) {
+            progress_pct <- round(inputs_processed / total_inputs * 100)
+            showNotification(paste("Applying settings...", progress_pct, "%"), 
+                           type = "message", duration = NULL, id = "template_loading")
+          }
         }
       }
       
@@ -320,15 +389,26 @@ server_global <- function(input, output, session) {
           if (safe_update_input(input_id, template_data$inputs$plotters[[input_id]])) {
             successful_count <- successful_count + 1
           }
+          inputs_processed <- inputs_processed + 1
+          
+          # Update progress every 10 inputs
+          if (inputs_processed %% 10 == 0) {
+            progress_pct <- round(inputs_processed / total_inputs * 100)
+            showNotification(paste("Applying settings...", progress_pct, "%"), 
+                           type = "message", duration = NULL, id = "template_loading")
+          }
         }
         
         cat("Successfully applied", successful_count, "out of", length(template_data$inputs$plotters), "plotter inputs\n")
       }
       
+      # Remove loading notification and show success
+      removeNotification("template_loading")
       showNotification(paste("Template loaded successfully:", importer_count_needed, "importers,", 
                              plotter_count_needed, "plotters"), type = "message")
       
     }, error = function(e) {
+      removeNotification("template_loading")
       showNotification(paste("Failed to load template:", e$message), type = "error", duration = 10)
       cat("Template load error:", e$message, "\n")
     })
@@ -940,73 +1020,59 @@ server_global <- function(input, output, session) {
   # Automation: Run All Batches
   observeEvent(input$automation_run_batches, {
     # Validate inputs
-    if (is.null(input$automation_include_runs) || !nzchar(trimws(input$automation_include_runs))) {
-      showNotification("Please provide include filters for batch runs (semicolon-separated)", type = "warning")
+    if (is.null(input$automation_filters) || !nzchar(trimws(input$automation_filters))) {
+      showNotification("Please provide filters for batch runs (semicolon-separated)", type = "warning")
       return()
     }
-    
-    # Parse the filter lists
-    include_filters <- trimws(strsplit(input$automation_include_runs, ";")[[1]])
-    exclude_filters <- if (!is.null(input$automation_exclude_runs) && nzchar(trimws(input$automation_exclude_runs))) {
-      trimws(strsplit(input$automation_exclude_runs, ";")[[1]])
-    } else {
-      rep("", length(include_filters)) # Empty exclude filters
+
+    # Parse the filter list (split by semicolon)
+    filter_list <- trimws(strsplit(input$automation_filters, ";")[[1]])
+    filter_list <- filter_list[filter_list != ""] # Remove empty entries
+
+    if (length(filter_list) == 0) {
+      showNotification("No valid filters found", type = "warning")
+      return()
     }
-    
-    # Ensure we have matching numbers of filters
-    max_filters <- max(length(include_filters), length(exclude_filters))
-    if (length(include_filters) < max_filters) {
-      include_filters <- c(include_filters, rep("", max_filters - length(include_filters)))
-    }
-    if (length(exclude_filters) < max_filters) {
-      exclude_filters <- c(exclude_filters, rep("", max_filters - length(exclude_filters)))
-    }
-    
-    showNotification(paste("Starting batch runs with", max_filters, "filter combination(s)..."), type = "message")
+
+    showNotification(paste("Starting batch runs with", length(filter_list), "filter(s)..."), type = "message")
     
     # Store original filter values to restore later
-    original_include <- isolate(input[["combiner-combiner_filter_in_files"]])
-    original_exclude <- isolate(input[["combiner-combiner_filter_out_files"]])
-    
+    original_custom_filter <- isolate(input[["combiner-custom_filter"]])
+
     # Function to execute a single batch run
-    execute_batch_run <- function(run_number, include_filter, exclude_filter) {
+    execute_batch_run <- function(run_number, filter_string) {
       cat("=== BATCH RUN", run_number, "===\n")
-      cat("Include filter:", include_filter, "\n")
-      cat("Exclude filter:", exclude_filter, "\n")
-      
+      cat("Filter:", filter_string, "\n")
+
       tryCatch({
-        # Update the combined data filters (need to remove the local function approach)
-        # Instead send the filter updates to JavaScript
+        # Update the combined data filters directly with the filter string
         session$sendCustomMessage("updateCombinerFilters", list(
-          includeFilter = include_filter,
-          excludeFilter = exclude_filter,
+          filterString = filter_string,
           runNumber = run_number
         ))
-        
+
         # Small delay to allow filter updates to process
         Sys.sleep(0.5)
-        
-        showNotification(paste("Batch", run_number, "- Applied filters. Generating plots..."), type = "message")
-        
+
+        showNotification(paste("Batch", run_number, "- Applied filter. Generating plots..."), type = "message")
+
         # Trigger generate all plots
         session$sendCustomMessage("triggerBatchRun", list(
           runNumber = run_number,
-          includeFilter = include_filter,
-          excludeFilter = exclude_filter,
+          filterString = filter_string,
           phase = "generate",
           timestamp = as.numeric(Sys.time())
         ))
-        
+
         # Schedule download after plot generation
         session$sendCustomMessage("triggerBatchRunDelayed", list(
           runNumber = run_number,
-          includeFilter = include_filter,
-          excludeFilter = exclude_filter,
+          filterString = filter_string,
           phase = "download",
           delay = 5000, # 5 second delay
           timestamp = as.numeric(Sys.time())
         ))
-        
+
       }, error = function(e) {
         cat("Error in batch run", run_number, ":", e$message, "\n")
         showNotification(paste("Error in batch", run_number, ":", e$message), type = "error")
@@ -1015,29 +1081,73 @@ server_global <- function(input, output, session) {
     
     # Execute batch runs using JavaScript scheduling
     session$sendCustomMessage("startBatchRuns", list(
-      includeFilters = include_filters,
-      excludeFilters = exclude_filters,
-      maxFilters = max_filters,
-      originalInclude = original_include %||% "",
-      originalExclude = original_exclude %||% "",
+      filterList = filter_list,
+      maxFilters = length(filter_list),
+      originalCustomFilter = original_custom_filter %||% "",
       timestamp = as.numeric(Sys.time())
     ))
   })
   
+  # Initialize batch state variables
+  current_batch_run <- reactiveVal(NULL)
+  current_batch_filter <- reactiveVal(NULL)
+
   # Handle filter updates from batch runs
   observeEvent(input$updateFiltersForBatch, {
     req(input$updateFiltersForBatch)
     filter_data <- input$updateFiltersForBatch
-    
+
     cat("Updating combiner filters for batch run", filter_data$runNumber, "\n")
-    cat("Include:", filter_data$includeFilter, "Exclude:", filter_data$excludeFilter, "\n")
-    
+    cat("Filter:", filter_data$filterString, "\n")
+
+    # Note: Removed timeout mechanism - using completion-based signaling instead
+
     # Send the actual filter update to the combiner inputs
     session$sendCustomMessage("updateCombinerFilters", list(
-      includeFilter = filter_data$includeFilter,
-      excludeFilter = filter_data$excludeFilter,
+      filterString = filter_data$filterString,
       runNumber = filter_data$runNumber
     ))
+
+    # Store the current run number for completion monitoring
+    current_batch_run(filter_data$runNumber)
+    current_batch_filter(filter_data$filterString)
+
+    # Note: Removed backup timeout - using completion-based signaling instead
+  })
+
+  # Monitor combiner processing completion for batch runs
+  observe({
+    req(data_combiner$processing_complete)
+
+    # Check if we're in a batch run and combiner processing just completed
+    if (!is.null(current_batch_run()) && data_combiner$processing_complete()) {
+      run_number <- current_batch_run()
+      filter_string <- current_batch_filter()
+
+      cat("Combiner processing completed for batch run", run_number, "- triggering plot generation\n")
+
+      # Trigger plot generation now that combiner is ready
+      session$sendCustomMessage("triggerBatchRun", list(
+        runNumber = run_number,
+        filterString = filter_string,
+        phase = "generate_plots",
+        timestamp = as.numeric(Sys.time())
+      ))
+
+      # Clear the batch state
+      current_batch_run(NULL)
+      current_batch_filter(NULL)
+    }
+  })
+
+  # Handle batch run completion signals from JavaScript
+  observeEvent(input$batch_run_complete, {
+    req(input$batch_run_complete)
+    completed_run <- input$batch_run_complete$completedRun
+
+    cat("Batch run", completed_run, "completed successfully - proceeding to next run\n")
+
+    # The JavaScript will handle this via input binding
   })
   
   # Helper & Downloader R Code Execution
@@ -1075,4 +1185,348 @@ server_global <- function(input, output, session) {
       })
     })
   }, ignoreInit = FALSE, ignoreNULL = FALSE)
+
+  # === Robust Batch Download System ===
+
+  # Reactive values for batch download state
+  batch_download_state <- reactiveVal(list(
+    status = "idle",
+    progress = 0,
+    message = "",
+    current_plotter = "",
+    temp_dir = NULL,
+    files_generated = 0,
+    total_plotters = 0
+  ))
+
+  # Batch download handler - creates ZIP archive
+  output$batch_download_output <- downloadHandler(
+    filename = function() {
+      paste0("plots_batch_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".zip")
+    },
+    content = function(file) {
+      tryCatch({
+        # Get all current plotter instances
+        current_plotters <- plotter_instances()
+
+        if (length(current_plotters) == 0) {
+          stop("No plotter tabs found. Please create at least one plotter tab first.")
+        }
+
+        # Update state to processing
+        batch_download_state(list(
+          status = "processing",
+          progress = 0,
+          message = "Initializing batch download...",
+          current_plotter = "",
+          temp_dir = NULL,
+          files_generated = 0,
+          total_plotters = length(current_plotters)
+        ))
+
+        # Create temporary directory for batch files
+        temp_dir <- create_batch_download_dir()
+        batch_download_state(list(
+          status = "processing",
+          progress = 5,
+          message = "Created temporary directory...",
+          current_plotter = "",
+          temp_dir = temp_dir,
+          files_generated = 0,
+          total_plotters = length(current_plotters)
+        ))
+
+        # Process each plotter sequentially
+        successful_files <- 0
+        total_plotters <- length(current_plotters)
+
+        for (i in seq_along(current_plotters)) {
+          plotter_id <- names(current_plotters)[i]
+          plotter_instance <- current_plotters[[i]]
+
+          # Update progress
+          progress_pct <- 5 + (i - 1) / total_plotters * 85
+          batch_download_state(list(
+            status = "processing",
+            progress = progress_pct,
+            message = paste("Processing", plotter_id, "..."),
+            current_plotter = plotter_id,
+            temp_dir = temp_dir,
+            files_generated = successful_files,
+            total_plotters = total_plotters
+          ))
+
+          tryCatch({
+            # Access plotter data
+            plot_obj <- NULL
+            plot_data <- NULL
+            plot_title <- ""
+            plot_caption <- ""
+            download_format <- "png"
+            download_width <- 12
+            download_height <- 8
+            download_dpi <- 300
+
+            # Try to get plot object from the plotter instance
+            if (!is.null(plotter_instance) && "plot_object_reactive" %in% names(plotter_instance)) {
+              plot_obj <- plotter_instance$plot_object_reactive()
+            }
+
+            # Try to get plot metadata from inputs
+            plotter_input_prefix <- paste0(plotter_id, "-")
+            plot_title_input <- paste0(plotter_input_prefix, "plot_title")
+            plot_caption_input <- paste0(plotter_input_prefix, "plot_caption")
+            format_input <- paste0(plotter_input_prefix, "download_format")
+            width_input <- paste0(plotter_input_prefix, "download_width")
+            height_input <- paste0(plotter_input_prefix, "download_height")
+            dpi_input <- paste0(plotter_input_prefix, "download_dpi")
+
+            if (!is.null(input[[plot_title_input]])) {
+              plot_title <- input[[plot_title_input]]
+            }
+            if (!is.null(input[[plot_caption_input]])) {
+              plot_caption <- input[[plot_caption_input]]
+            }
+            if (!is.null(input[[format_input]])) {
+              download_format <- input[[format_input]]
+            }
+            if (!is.null(input[[width_input]])) {
+              download_width <- as.numeric(input[[width_input]])
+            }
+            if (!is.null(input[[height_input]])) {
+              download_height <- as.numeric(input[[height_input]])
+            }
+            if (!is.null(input[[dpi_input]])) {
+              download_dpi <- as.numeric(input[[dpi_input]])
+            }
+
+            # Generate filename
+            filename <- generate_batch_filename(
+              plotter_id,
+              title = plot_title,
+              caption = plot_caption,
+              format = download_format
+            )
+
+            full_path <- file.path(temp_dir, filename)
+
+            # Generate the plot file
+            if (!is.null(plot_obj)) {
+              success <- generate_plot_file(
+                plot_obj,
+                full_path,
+                format = download_format,
+                width = download_width,
+                height = download_height,
+                dpi = download_dpi
+              )
+
+              if (success) {
+                successful_files <- successful_files + 1
+                cat("Successfully generated:", filename, "\n")
+              } else {
+                warning("Failed to generate file for plotter:", plotter_id)
+              }
+            } else {
+              warning("No plot object found for plotter:", plotter_id)
+            }
+
+          }, error = function(e) {
+            warning("Error processing plotter ", plotter_id, ": ", e$message)
+          })
+
+          # Small delay to prevent overwhelming the system
+          Sys.sleep(0.1)
+        }
+
+        # Update progress to zipping phase
+        batch_download_state(list(
+          status = "processing",
+          progress = 90,
+          message = "Creating ZIP archive...",
+          current_plotter = "",
+          temp_dir = temp_dir,
+          files_generated = successful_files,
+          total_plotters = total_plotters
+        ))
+
+        # Create ZIP archive
+        zip_success <- create_batch_zip(temp_dir, file)
+
+        if (zip_success) {
+          batch_download_state(list(
+            status = "complete",
+            progress = 100,
+            message = paste("Successfully created ZIP with", successful_files, "files"),
+            current_plotter = "",
+            temp_dir = temp_dir,
+            files_generated = successful_files,
+            total_plotters = total_plotters
+          ))
+        } else {
+          stop("Failed to create ZIP archive")
+        }
+
+      }, error = function(e) {
+        # Update state on error
+        current_state <- batch_download_state()
+        batch_download_state(list(
+          status = "error",
+          progress = 0,
+          message = paste("Error:", e$message),
+          current_plotter = "",
+          temp_dir = current_state$temp_dir,
+          files_generated = current_state$files_generated,
+          total_plotters = current_state$total_plotters
+        ))
+
+        stop(e$message)
+      }, finally = {
+        # Clean up temporary files (with delay to ensure ZIP is created)
+        current_state <- batch_download_state()
+        if (!is.null(current_state$temp_dir)) {
+          # Clean up after a short delay to ensure the ZIP file is written
+          later::later(function() {
+            cleanup_batch_files(current_state$temp_dir)
+          }, delay = 5)
+        }
+      })
+    }
+  )
+
+  # Progress output for batch download
+  output$batch_download_progress <- renderUI({
+    state <- batch_download_state()
+
+    if (state$status == "idle") {
+      return(NULL)
+    }
+
+    progress_class <- switch(state$status,
+      "processing" = "bg-info",
+      "complete" = "bg-success",
+      "error" = "bg-danger",
+      "bg-secondary"
+    )
+
+    tagList(
+      div(class = "mb-3",
+        h5("Batch Download Progress"),
+        div(class = paste("progress mb-2"),
+          div(class = paste("progress-bar", progress_class),
+              role = "progressbar",
+              style = paste0("width: ", state$progress, "%"),
+              `aria-valuenow` = state$progress,
+              `aria-valuemin` = "0",
+              `aria-valuemax` = "100",
+              paste0(state$progress, "%")
+          )
+        ),
+        p(class = "mb-1", state$message),
+        if (state$current_plotter != "") {
+          p(class = "text-muted small", paste("Current:", state$current_plotter))
+        },
+        if (state$files_generated > 0) {
+          p(class = "text-muted small",
+            paste(state$files_generated, "of", state$total_plotters, "files generated"))
+        }
+      )
+    )
+  })
+
+  # Improved batch download trigger with better error handling
+  observeEvent(input$automation_download_plots, {
+    tryCatch({
+      current_plotters <- plotter_instances()
+
+      if (length(current_plotters) == 0) {
+        showNotification("No plotter tabs found. Please create at least one plotter tab first.",
+                        type = "warning", duration = 5)
+        return()
+      }
+
+      # Show initial notification
+      showNotification(
+        paste("Starting batch download for", length(current_plotters), "plotter(s)..."),
+        type = "message",
+        duration = 3
+      )
+
+      # Reset batch state
+      batch_download_state(list(
+        status = "idle",
+        progress = 0,
+        message = "",
+        current_plotter = "",
+        temp_dir = NULL,
+        files_generated = 0,
+        total_plotters = 0
+      ))
+
+      # Trigger the download by simulating a click on the hidden download button
+      # This will call the downloadHandler above
+      session$sendCustomMessage("triggerBatchDownload", list(
+        timestamp = as.numeric(Sys.time()),
+        plotter_count = length(current_plotters)
+      ))
+
+    }, error = function(e) {
+      showNotification(
+        paste("Error starting batch download:", e$message),
+        type = "error",
+        duration = 8
+      )
+    })
+  })
+
+  # Handle the JavaScript trigger for batch download
+  observeEvent(input$trigger_batch_download, {
+    # This is triggered by JavaScript after the download button is clicked
+    # The actual download processing happens in the downloadHandler above
+    cat("Batch download initiated via JavaScript trigger\n")
+  })
+
+  # Handle the quick batch download button
+  observeEvent(input$quick_batch_download, {
+    tryCatch({
+      current_plotters <- plotter_instances()
+
+      if (length(current_plotters) == 0) {
+        showNotification("No plotter tabs found. Please create at least one plotter tab first.",
+                        type = "warning", duration = 5)
+        return()
+      }
+
+      # Show initial notification
+      showNotification(
+        paste("Starting ZIP download for", length(current_plotters), "plotter(s)..."),
+        type = "message",
+        duration = 3
+      )
+
+      # Reset batch state
+      batch_download_state(list(
+        status = "idle",
+        progress = 0,
+        message = "",
+        current_plotter = "",
+        temp_dir = NULL,
+        files_generated = 0,
+        total_plotters = 0
+      ))
+
+      # Trigger the download directly by clicking the hidden download button
+      session$sendCustomMessage("triggerBatchDownload", list(
+        timestamp = as.numeric(Sys.time()),
+        plotter_count = length(current_plotters)
+      ))
+
+    }, error = function(e) {
+      showNotification(
+        paste("Error starting batch download:", e$message),
+        type = "error",
+        duration = 8
+      )
+    })
+  })
 }

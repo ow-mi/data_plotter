@@ -2,6 +2,7 @@
 # This is a condensed version of the grid & axes template
 
 ggplot_grid_axes_template <- "# Grid & Axes Controls
+# Grid & Axes Controls
 # Available: p (plot with overlays), plot_df, input (UI inputs)
 # Purpose: Apply grid controls, axis transformations, and limits
 
@@ -101,6 +102,36 @@ if (x_limit_type == 'numeric') {
 }
 
 # -----------------------------------------------------------------------------
+# 1. Helper to compute safe sequences with dynamic rescaling
+# -----------------------------------------------------------------------------
+safe_seq <- function(from, to, by, max_n = 1000) {
+  if (is.null(from) || is.null(to) || is.na(from) || is.na(to)) return(NULL)
+  if (by <= 0) return(NULL)
+  
+  range_size <- to - from
+  n <- range_size / by
+  
+  if (n > max_n) {
+    # Dynamically scale 'by' upwards until breaks are under max_n
+    new_by <- ceiling(range_size / max_n)
+    warning(sprintf(
+      'Requested grid step %.6f would create %.0f breaks. Rescaling to %.6f.',
+      by, n, new_by
+    ))
+    by <- new_by
+  }
+  
+  # Final safety: if still broken, fallback to pretty()
+  n <- range_size / by
+  if (n > max_n * 2) {
+    warning('Still too many breaks after rescaling. Using pretty().')
+    return(pretty(c(from, to), n = 10))
+  }
+  
+  seq(from = from, to = to, by = by)
+}
+
+# -----------------------------------------------------------------------------
 # 2. Helper to compute minor breaks from majors + a count
 # -----------------------------------------------------------------------------
 make_minor_breaks <- function(majors, n_between) {
@@ -112,24 +143,19 @@ make_minor_breaks <- function(majors, n_between) {
     b <- majors[i + 1]
     
     if (inherits(a, c('POSIXct', 'POSIXt', 'Date'))) {
-      # For time data - handle POSIXct properly
       time_diff_seconds <- as.numeric(difftime(b, a, units = 'secs'))
       step_seconds <- time_diff_seconds / (n_between + 1)
-      
-      # Create minor time points
       for (j in 1:n_between) {
         minor_time <- a + (j * step_seconds)
         minors <- c(minors, as.numeric(minor_time))
       }
     } else {
-      # For numeric data
       step <- (b - a) / (n_between + 1)
       minor_vals <- seq(a + step, b - step, length.out = n_between)
       minors <- c(minors, minor_vals)
     }
   }
   
-  # Convert back to original class
   if (length(majors) > 0 && inherits(majors[1], c('POSIXct', 'POSIXt'))) {
     minors <- as.POSIXct(minors, origin = '1970-01-01', tz = attr(majors[1], 'tzone'))
   } else if (length(majors) > 0 && inherits(majors[1], 'Date')) {
@@ -140,78 +166,66 @@ make_minor_breaks <- function(majors, n_between) {
 }
 
 # -----------------------------------------------------------------------------
-# 3. Compute major breaks based on data type
+# 3. Compute major breaks with safety checks
 # -----------------------------------------------------------------------------
 x_breaks <- NULL
 y_breaks <- NULL
 x_minor_breaks <- NULL
 y_minor_breaks <- NULL
 
-# Get vertical grid type setting (user choice: 'auto', 'numeric', 'timestamp')
 vertical_grid_type <- if(!is.null(input$vertical_grid_type)) input$vertical_grid_type else 'auto'
 
-# X-axis breaks (handle timestamps and numeric based on user choice)
+# X-axis breaks
 if (enable_maj_x) {
-  # Determine how to treat x-axis data based on user selection
   use_timestamp_mode <- (vertical_grid_type == 'timestamp') || 
                        (vertical_grid_type == 'auto' && inherits(plot_df$x_axis, c('POSIXct', 'POSIXt', 'Date')))
   
   if (use_timestamp_mode) {
-    # For timestamp data, maj_x_by is interpreted as minutes
     x_data_range <- range(plot_df$x_axis, na.rm = TRUE)
+    interval_seconds <- maj_x_by * 60
     
-    # Create breaks at exact minute intervals for consistent spacing
-    interval_seconds <- maj_x_by * 60  # Convert minutes to seconds
-    
-    # Round start time down to nearest interval and end time up to nearest interval
     start_time <- x_data_range[1]
-    end_time <- x_data_range[2]
+    end_time   <- x_data_range[2]
     
-    # Create sequence with exact time intervals
-    x_breaks <- seq(from = start_time, to = end_time, by = interval_seconds)
+    x_breaks <- safe_seq(start_time, end_time, by = interval_seconds)
     
-    # Ensure we have at least 2 breaks for the grid to work
     if (length(x_breaks) < 2) {
-      # If interval is too large, create at least start and end
       x_breaks <- seq(from = start_time, to = end_time, length.out = 3)
     }
   } else {
-    # For numeric data (force convert if needed)
     x_numeric_data <- as.numeric(plot_df$x_axis)
     x_data_range <- range(x_numeric_data, na.rm = TRUE)
-    x_breaks <- seq(
+    
+    x_breaks <- safe_seq(
       from = floor(x_data_range[1] / maj_x_by) * maj_x_by,
-      to = ceiling(x_data_range[2] / maj_x_by) * maj_x_by,
-      by = maj_x_by
+      to   = ceiling(x_data_range[2] / maj_x_by) * maj_x_by,
+      by   = maj_x_by
     )
   }
   
-  # Calculate minor breaks if enabled
   if (enable_min_x && !is.null(x_breaks)) {
     x_minor_breaks <- make_minor_breaks(x_breaks, nmin_x)
   }
 }
 
-# Y-axis breaks (always numeric in this case)
+# Y-axis breaks
 if (enable_maj_y && is.numeric(plot_df$value)) {
   y_data_range <- range(plot_df$value, na.rm = TRUE)
-  y_breaks <- seq(
+  y_breaks <- safe_seq(
     from = floor(y_data_range[1] / maj_y_by) * maj_y_by,
-    to = ceiling(y_data_range[2] / maj_y_by) * maj_y_by,
-    by = maj_y_by
+    to   = ceiling(y_data_range[2] / maj_y_by) * maj_y_by,
+    by   = maj_y_by
   )
   
-  # Calculate minor breaks if enabled
   if (enable_min_y && !is.null(y_breaks)) {
     y_minor_breaks <- make_minor_breaks(y_breaks, nmin_y)
   }
 }
 
 # -----------------------------------------------------------------------------
-# 4. Apply scales with custom breaks (trans only works with continuous scales)
+# 4. Apply scales
 # -----------------------------------------------------------------------------
 if (!is.null(x_breaks)) {
-  # Determine which scale function to use
   use_timestamp_mode <- (vertical_grid_type == 'timestamp') || 
                        (vertical_grid_type == 'auto' && inherits(plot_df$x_axis, c('POSIXct', 'POSIXt', 'Date')))
   
@@ -228,7 +242,6 @@ if (!is.null(x_breaks)) {
       )
     }
   } else {
-    # Use continuous scale with transformation support
     p <- p + scale_x_continuous(
       trans = x_trans,
       breaks = x_breaks,
@@ -236,7 +249,6 @@ if (!is.null(x_breaks)) {
     )
   }
 } else {
-  # No custom breaks - apply appropriate scale
   use_timestamp_mode <- (vertical_grid_type == 'timestamp') || 
                        (vertical_grid_type == 'auto' && inherits(plot_df$x_axis, c('POSIXct', 'POSIXt', 'Date')))
   
@@ -260,69 +272,4 @@ if (!is.null(y_breaks)) {
 } else {
   p <- p + scale_y_continuous(trans = y_trans)
 }
-
-# -----------------------------------------------------------------------------
-# 5. Apply grid line theming
-# -----------------------------------------------------------------------------
-theme_updates <- list()
-
-# Major grid lines
-if (enable_maj_x) {
-  theme_updates$panel.grid.major.x <- element_line(
-    color = maj_x_col,
-    linewidth = maj_x_lw,
-    linetype = maj_x_lt
-  )
-} else {
-  theme_updates$panel.grid.major.x <- element_blank()
-}
-
-if (enable_maj_y) {
-  theme_updates$panel.grid.major.y <- element_line(
-    color = maj_y_col,
-    linewidth = maj_y_lw,
-    linetype = maj_y_lt
-  )
-} else {
-  theme_updates$panel.grid.major.y <- element_blank()
-}
-
-# Minor grid lines
-if (enable_min_x) {
-  theme_updates$panel.grid.minor.x <- element_line(
-    color = min_x_col,
-    linewidth = min_x_lw,
-    linetype = min_x_lt
-  )
-} else {
-  theme_updates$panel.grid.minor.x <- element_blank()
-}
-
-if (enable_min_y) {
-  theme_updates$panel.grid.minor.y <- element_line(
-    color = min_y_col,
-    linewidth = min_y_lw,
-    linetype = min_y_lt
-  )
-} else {
-  theme_updates$panel.grid.minor.y <- element_blank()
-}
-
-# Apply all theme updates at once
-p <- p + do.call(theme, theme_updates)
-
-# Store limits for use in final template
-assign('xlim_values', xlim_values, envir = .GlobalEnv) 
-assign('ylim_values', ylim_values, envir = .GlobalEnv)
-
-p # Return plot with grid and axis controls
 "
-
-# NOTE: The complete grid & axes template is very extensive (lines 810-1125)
-# It includes detailed implementations for:
-# - Complex break calculations for both numeric and timestamp data
-# - Minor break generation functions
-# - Grid line styling with full control over colors, linetypes, linewidths
-# - Timestamp vs numeric handling for vertical grids
-# - X and Y axis limit controls with both numeric and timestamp support
-# For the complete implementation, please refer to the original r_code_.R file

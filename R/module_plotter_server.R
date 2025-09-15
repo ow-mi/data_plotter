@@ -129,9 +129,17 @@ server_plotter <- function(id, combined_data_reactive, main_session_input = NULL
       spsComps::shinyCatch({
         # Get the combined data
         combined_df <- data.table::copy(combined_data_reactive())
-        
+
+        cat("DEBUG: Plotter data processing - received data with", nrow(combined_df), "rows\n")
+        if (!is.null(combined_df) && nrow(combined_df) > 0) {
+          cat("DEBUG: Sample data columns:", paste(names(combined_df)[1:min(5, ncol(combined_df))], collapse = ", "), "\n")
+          if ("dut" %in% names(combined_df)) {
+            cat("DEBUG: Unique DUT values:", paste(unique(combined_df$dut)[1:min(5, length(unique(combined_df$dut)))], collapse = ", "), "\n")
+          }
+        }
+
         if (is.null(combined_df) || nrow(combined_df) == 0) {
-          showNotification("No data available to process", type = "warning")
+          showNotification("No data available to process", type = "warning", duration = 5)
           return()
         }
         
@@ -154,7 +162,7 @@ server_plotter <- function(id, combined_data_reactive, main_session_input = NULL
             combined_df <- combined_df[combined_df$source_importer_id %in% selected_sources, ]
           } else {
             # If no sources selected, show warning and use all data
-            showNotification("No sources selected - using all data", type = "warning")
+            showNotification("No sources selected - using all data", type = "warning", duration = 5)
           }
         }
         
@@ -184,15 +192,27 @@ server_plotter <- function(id, combined_data_reactive, main_session_input = NULL
         processed_df <- eval(parse(text = r_code_plot_process_reactive()), envir = env)
         df_plot_data_processed(processed_df)
         
-        # Update aesthetics choices based on processed data columns
+        # Update aesthetics placeholders based on processed data columns
         if (!is.null(processed_df) && ncol(processed_df) > 0) {
-          column_choices <- c("None" = "null", setNames(names(processed_df), names(processed_df)))
-          
-          updateSelectInput(session, "plot_color", choices = column_choices, selected = if("series" %in% names(processed_df)) "series" else "null")
-          updateSelectInput(session, "plot_linetype", choices = column_choices, selected = "null")
+          available_columns <- names(processed_df)
+          column_list <- paste(available_columns, collapse = ", ")
+
+          # Show available columns as a notification (non-intrusive)
+          showNotification(
+            paste("Available columns for grouping:", column_list),
+            type = "message",
+            duration = 5
+          )
+
+          # If no color column is set and 'series' exists, suggest it (but don't force it)
+          if (is.null(input$plot_color) || input$plot_color == "") {
+            if ("series" %in% available_columns) {
+              updateTextInput(session, "plot_color", value = "series")
+            }
+          }
         }
         
-        showNotification("Plot-specific data processing complete.", type = "message")
+        showNotification("Plot-specific data processing complete.", type = "message", duration = 3)
       })
     })
 
@@ -225,7 +245,14 @@ server_plotter <- function(id, combined_data_reactive, main_session_input = NULL
       spsComps::shinyCatch(
         tryCatch({
         req(df_plot_data_processed()) # Requires data processed for *this* plot
-        
+
+        # Debug: Check what data we're plotting
+        plot_data <- df_plot_data_processed()
+        cat("DEBUG: Plot rendering - using data with", nrow(plot_data), "rows\n")
+        if ("dut" %in% names(plot_data)) {
+          cat("DEBUG: Plot data unique DUT values:", paste(unique(plot_data$dut)[1:min(5, length(unique(plot_data$dut)))], collapse = ", "), "\n")
+        }
+
         # Use withProgress for built-in progress indicator
         withProgress(message = 'Generating plot...', value = 0, {
           
@@ -426,6 +453,79 @@ server_plotter <- function(id, combined_data_reactive, main_session_input = NULL
       ) # Close spsComps::shinyCatch
     })
 
+    # Helper function to evaluate quoted R code within text for filename generation
+    evaluate_for_filename <- function(text_with_code, df_data) {
+      if (is.null(text_with_code) || !nzchar(trimws(text_with_code))) {
+        return(NULL)
+      }
+
+      # Create evaluation environment similar to plot generation
+      env <- new.env(parent = .GlobalEnv)
+      env$df <- df_data
+      env$input <- input
+
+      # Find patterns like "code" or 'code' (quoted R code to evaluate)
+      pattern <- '["\'](.*?)["\']'
+
+      # Extract all quoted sections
+      matches <- gregexpr(pattern, text_with_code, perl = TRUE)
+      match_data <- regmatches(text_with_code, matches)[[1]]
+
+      if (length(match_data) == 0) {
+        # No quoted code found, return NULL to indicate no evaluation needed
+        return(NULL)
+      }
+
+      # Process each quoted section
+      result_text <- text_with_code
+      for (quoted_code in match_data) {
+        # Remove quotes to get the actual code
+        code <- gsub('^["\']|["\']$', '', quoted_code)
+
+        tryCatch({
+          # Evaluate the code in the provided environment
+          eval_result <- eval(parse(text = code), envir = env)
+
+          # Convert result to character and handle vectors
+          if (is.null(eval_result)) {
+            result_str <- "null"
+          } else if (is.vector(eval_result) && length(eval_result) > 1) {
+            # Join multiple values with underscores for filename
+            result_str <- paste(eval_result, collapse = "_")
+          } else {
+            result_str <- as.character(eval_result)
+          }
+
+          # Make filename-safe: replace problematic characters
+          result_str <- gsub("[^a-zA-Z0-9_.-]", "_", result_str)
+          # Remove multiple consecutive underscores
+          result_str <- gsub("_+", "_", result_str)
+          # Remove leading/trailing underscores
+          result_str <- gsub("^_|_$", "", result_str)
+
+          # Replace the quoted code with the result in the text
+          result_text <- gsub(pattern = fixed(quoted_code), replacement = result_str, x = result_text, fixed = TRUE)
+
+        }, error = function(e) {
+          # If evaluation fails, replace with error message
+          error_msg <- "eval_error"
+          result_text <- gsub(pattern = fixed(quoted_code), replacement = error_msg, x = result_text, fixed = TRUE)
+        })
+      }
+
+      # Final filename safety check
+      result_text <- gsub("[^a-zA-Z0-9_.-]", "_", result_text)
+      result_text <- gsub("_+", "_", result_text)
+      result_text <- gsub("^_|_$", "", result_text)
+      result_text <- substr(result_text, 1, 50) # Allow longer for combined text
+
+      if (!nzchar(result_text)) {
+        return("title")
+      }
+
+      return(result_text)
+    }
+
     # Flexible plot output using renderUI
     output$plot_output <- renderUI({
       req(plot_object_reactive())
@@ -479,22 +579,52 @@ server_plotter <- function(id, combined_data_reactive, main_session_input = NULL
     output$download_output <- downloadHandler(
       filename = function() {
         req(plot_object_reactive())
-        
+        req(df_plot_data_processed()) # Need the data for evaluation
+
+        # Get the processed data for evaluation
+        current_df <- df_plot_data_processed()
+
         # Build filename from title + caption + timestamp
         title_part <- if (!is.null(input$plot_title) && nzchar(input$plot_title)) {
-          gsub("[^a-zA-Z0-9_.-]", "_", substr(input$plot_title, 1, 30)) # Limit length
+          # Try to evaluate the title as R code first
+          evaluated_title <- evaluate_for_filename(input$plot_title, current_df)
+          if (!is.null(evaluated_title)) {
+            evaluated_title
+          } else {
+            # Fallback to string_eval for quoted code within text
+            plot_title_eval <- string_eval(input$plot_title)
+            # Extract first few words of title, clean them
+            title_clean <- gsub("[^a-zA-Z0-9 ]", "", plot_title_eval)
+            title_words <- strsplit(title_clean, "\\s+")[[1]]
+            title_short <- paste(head(title_words, 3), collapse = "_")
+            if (nzchar(title_short)) title_short else id
+          }
         } else if (!is.null(input$plot_name) && nzchar(input$plot_name)) {
-          gsub("[^a-zA-Z0-9_.-]", "_", substr(input$plot_name, 1, 30))
+          # Try to evaluate the plot name as R code
+          evaluated_name <- evaluate_for_filename(input$plot_name, current_df)
+          if (!is.null(evaluated_name)) {
+            evaluated_name
+          } else {
+            id
+          }
         } else {
           id
         }
         
         caption_part <- if (!is.null(input$plot_caption) && nzchar(input$plot_caption)) {
-          # Extract first few words of caption, clean them
-          caption_clean <- gsub("[^a-zA-Z0-9 ]", "", input$plot_caption)
-          caption_words <- strsplit(caption_clean, "\\s+")[[1]]
-          caption_short <- paste(head(caption_words, 3), collapse = "_")
-          if (nzchar(caption_short)) paste0("_", caption_short) else ""
+          # Try to evaluate the caption as R code first
+          evaluated_caption <- evaluate_for_filename(input$plot_caption, current_df)
+          if (!is.null(evaluated_caption)) {
+            paste0("_", evaluated_caption)
+          } else {
+            # Fallback to string_eval for quoted code within text
+            plot_caption_eval <- string_eval(input$plot_caption)
+            # Extract first few words of caption, clean them
+            caption_clean <- gsub("[^a-zA-Z0-9 ]", "", plot_caption_eval)
+            caption_words <- strsplit(caption_clean, "\\s+")[[1]]
+            caption_short <- paste(head(caption_words, 3), collapse = "_")
+            if (nzchar(caption_short)) paste0("_", caption_short) else ""
+          }
         } else {
           ""
         }

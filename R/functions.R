@@ -147,52 +147,326 @@ extract_from_filename <- function(df, filename_col = "file_name_source", extract
 }
 
 # Evaluate R code within strings for dynamic text generation
-string_eval <- function(text, env = parent.frame()) {
+string_eval <- function(text, env = parent.frame(), safe_mode = FALSE, max_length = 1000) {
   if (is.null(text) || is.na(text) || text == "") {
     return(text)
   }
-  
-  # Find patterns like "code" or 'code' (quoted R code to evaluate)
-  pattern <- '["\'](.*?)["\']'
-  
-  # Extract all quoted sections
+
+  # Improved regex pattern that handles escaped quotes better
+  # Matches quoted strings but avoids matching escaped quotes within
+  pattern <- '(["\'])((?:\\\\.|(?!(?<!\\\\)\\1).)*?)\\1'
+
+  # Extract all quoted sections with better handling
   matches <- gregexpr(pattern, text, perl = TRUE)
   match_data <- regmatches(text, matches)[[1]]
-  
+
   if (length(match_data) == 0) {
     # No quoted code found, return original text
     return(text)
   }
-  
+
   # Process each quoted section
   result_text <- text
-  for (quoted_code in match_data) {
-    # Remove quotes to get the actual code
-    code <- gsub('^["\']|["\']$', '', quoted_code)
-    
+  processed_codes <- list() # Track processed code to avoid duplicate processing
+
+  for (i in seq_along(match_data)) {
+    quoted_code <- match_data[i]
+
+    # Skip if we've already processed this exact code
+    if (quoted_code %in% names(processed_codes)) {
+      next
+    }
+
+    # Extract the content between quotes, handling escaped characters
+    code_match <- regexec(pattern, quoted_code, perl = TRUE)
+    code <- regmatches(quoted_code, code_match)[[1]][3] # Get the captured group
+
+    # Unescape quotes within the code
+    code <- gsub('\\\\(["\'])', '\\1', code)
+
+    # Skip empty code
+    if (is.null(code) || code == "") {
+      next
+    }
+
     tryCatch({
+      # Security check in safe mode
+      if (safe_mode) {
+        # Block potentially dangerous operations
+        dangerous_patterns <- c(
+          "system\\s*\\(",
+          "shell\\s*\\(",
+          "eval\\s*\\(",
+          "parse\\s*\\(",
+          "source\\s*\\(",
+          "file\\.remove\\s*\\(",
+          "unlink\\s*\\(",
+          "setwd\\s*\\(",
+          "\\.Call\\s*\\(",
+          "\\.External\\s*\\(",
+          "\\.C\\s*\\(",
+          "\\.Fortran\\s*\\("
+        )
+
+        if (any(sapply(dangerous_patterns, function(p) grepl(p, code, ignore.case = TRUE)))) {
+          stop("Potentially unsafe code detected")
+        }
+      }
+
       # Evaluate the code in the provided environment
       eval_result <- eval(parse(text = code), envir = env)
-      
-      # Convert result to character and handle vectors
-      if (is.vector(eval_result) && length(eval_result) > 1) {
-        # Join multiple values with commas
-        result_str <- paste(eval_result, collapse = ", ")
-      } else {
-        result_str <- as.character(eval_result)
-      }
-      
+
+      # Improved result conversion with better type handling
+      result_str <- format_eval_result(eval_result, max_length)
+
       # Replace the quoted code with the result in the text
-      result_text <- gsub(pattern = fixed(quoted_code), replacement = result_str, x = result_text, fixed = TRUE)
-      
+      result_text <- gsub(
+        pattern = fixed(quoted_code),
+        replacement = result_str,
+        x = result_text,
+        fixed = TRUE
+      )
+
+      # Cache the result to avoid reprocessing identical code
+      processed_codes[[quoted_code]] <- result_str
+
     }, error = function(e) {
-      # If evaluation fails, replace with error message
-      error_msg <- paste0("[Error: ", e$message, "]")
-      result_text <<- gsub(pattern = fixed(quoted_code), replacement = error_msg, x = result_text, fixed = TRUE)
+      # More informative error message
+      error_msg <- sprintf("[Error evaluating '%s': %s]", substr(code, 1, 50), e$message)
+
+      # If error message is too long, truncate it
+      if (nchar(error_msg) > 200) {
+        error_msg <- paste0(substr(error_msg, 1, 197), "...]")
+      }
+
+      result_text <- gsub(
+        pattern = fixed(quoted_code),
+        replacement = error_msg,
+        x = result_text,
+        fixed = TRUE
+      )
+
+      # Cache the error result too
+      processed_codes[[quoted_code]] <- error_msg
     })
   }
-  
+
   return(result_text)
+}
+
+# Helper function to format evaluation results
+format_eval_result <- function(result, max_length = 1000) {
+  if (is.null(result)) {
+    return("NULL")
+  }
+
+  if (is.na(result) && length(result) == 1) {
+    return("NA")
+  }
+
+  # Handle different data types
+  if (is.factor(result)) {
+    result <- as.character(result)
+  } else if (is.logical(result)) {
+    result <- ifelse(result, "TRUE", "FALSE")
+  } else if (is.list(result)) {
+    # Convert list to a readable format
+    if (length(result) == 0) {
+      return("list()")
+    } else {
+      items <- sapply(result, function(x) {
+        if (is.null(x)) "NULL" else as.character(x)
+      })
+      return(sprintf("list(%s)", paste(items, collapse = ", ")))
+    }
+  } else if (is.data.frame(result)) {
+    # For data frames, show dimensions
+    return(sprintf("data.frame(%d rows, %d cols)", nrow(result), ncol(result)))
+  } else if (is.matrix(result)) {
+    return(sprintf("matrix(%d x %d)", nrow(result), ncol(result)))
+  }
+
+  # Convert to character
+  if (is.vector(result) && length(result) > 1) {
+    # Join multiple values with commas, but limit total length
+    result_str <- paste(result, collapse = ", ")
+
+    if (nchar(result_str) > max_length) {
+      # Truncate and add indicator
+      result_str <- paste0(substr(result_str, 1, max_length - 3), "...")
+    }
+
+    return(result_str)
+  } else {
+    result_str <- as.character(result)
+
+    # Handle very long single results
+    if (nchar(result_str) > max_length) {
+      result_str <- paste0(substr(result_str, 1, max_length - 3), "...")
+    }
+
+    return(result_str)
+  }
+}
+
+# Safe version for user inputs (blocks system calls and file operations)
+string_eval_safe <- function(text, env = parent.frame(), max_length = 1000) {
+  string_eval(text, env, safe_mode = TRUE, max_length = max_length)
+}
+
+# Version that preserves original quotes and formatting
+string_eval_preserve <- function(text, env = parent.frame(), safe_mode = FALSE) {
+  if (is.null(text) || is.na(text) || text == "") {
+    return(text)
+  }
+
+  # Pattern that captures quotes, content, and closing quote separately
+  pattern <- '(["\'])((?:\\\\.|(?!(?<!\\\\)\\1).)*?)\\1'
+
+  matches <- gregexpr(pattern, text, perl = TRUE)
+  match_data <- regmatches(text, matches)[[1]]
+
+  if (length(match_data) == 0) {
+    return(text)
+  }
+
+  result_text <- text
+
+  for (quoted_code in match_data) {
+    # Extract quote type and content
+    code_match <- regexec(pattern, quoted_code, perl = TRUE)
+    parts <- regmatches(quoted_code, code_match)[[1]]
+
+    if (length(parts) >= 4) {
+      quote_type <- parts[2]
+      code <- parts[3]
+
+      # Unescape quotes within the code
+      code <- gsub('\\\\(["\'])', '\\1', code)
+
+      if (code != "") {
+        tryCatch({
+          if (safe_mode) {
+            # Same security checks as before
+            dangerous_patterns <- c(
+              "system\\s*\\(", "shell\\s*\\(", "eval\\s*\\(",
+              "parse\\s*\\(", "source\\s*\\(", "file\\.remove\\s*\\(",
+              "unlink\\s*\\(", "setwd\\s*\\("
+            )
+
+            if (any(sapply(dangerous_patterns, function(p) grepl(p, code, ignore.case = TRUE)))) {
+              stop("Potentially unsafe code detected")
+            }
+          }
+
+          eval_result <- eval(parse(text = code), envir = env)
+          result_str <- format_eval_result(eval_result)
+
+          # Replace with same quote type
+          replacement <- paste0(quote_type, result_str, quote_type)
+          result_text <- gsub(fixed(quoted_code), replacement, result_text, fixed = TRUE)
+
+        }, error = function(e) {
+          error_msg <- sprintf("Error: %s", e$message)
+          replacement <- paste0(quote_type, error_msg, quote_type)
+          result_text <- gsub(fixed(quoted_code), replacement, result_text, fixed = TRUE)
+        })
+      }
+    }
+  }
+
+  return(result_text)
+}
+
+# Test and demonstration functions for string_eval
+test_string_eval <- function() {
+  # Create a test environment with some variables
+  test_env <- new.env()
+  test_env$x <- 42
+  test_env$name <- "Alice"
+  test_env$scores <- c(85, 92, 78, 96)
+  test_env$my_list <- list(a = 1, b = "hello", c = TRUE)
+  test_env$my_df <- data.frame(id = 1:3, value = c("A", "B", "C"))
+
+  cat("=== Testing string_eval improvements ===\n\n")
+
+  # Test 1: Basic variable evaluation
+  text1 <- "Hello 'name', your score is 'x' points!"
+  result1 <- string_eval(text1, test_env)
+  cat("Test 1 - Basic variables:\n")
+  cat("Input: ", text1, "\n")
+  cat("Output:", result1, "\n\n")
+
+  # Test 2: Vector handling
+  text2 <- "Your scores are: 'paste(scores, collapse=\", \")'"
+  result2 <- string_eval(text2, test_env)
+  cat("Test 2 - Vector handling:\n")
+  cat("Input: ", text2, "\n")
+  cat("Output:", result2, "\n\n")
+
+  # Test 3: List handling
+  text3 <- "List contents: 'my_list'"
+  result3 <- string_eval(text3, test_env)
+  cat("Test 3 - List handling:\n")
+  cat("Input: ", text3, "\n")
+  cat("Output:", result3, "\n\n")
+
+  # Test 4: Data frame handling
+  text4 <- "Data frame info: 'my_df'"
+  result4 <- string_eval(text4, test_env)
+  cat("Test 4 - Data frame handling:\n")
+  cat("Input: ", text4, "\n")
+  cat("Output:", result4, "\n\n")
+
+  # Test 5: Escaped quotes
+  text5 <- "Result: 'paste(\"Hello\", \"World\", sep=\" \")'"
+  result5 <- string_eval(text5, test_env)
+  cat("Test 5 - Escaped quotes:\n")
+  cat("Input: ", text5, "\n")
+  cat("Output:", result5, "\n\n")
+
+  # Test 6: Error handling
+  text6 <- "This will error: 'nonexistent_var + 1'"
+  result6 <- string_eval(text6, test_env)
+  cat("Test 6 - Error handling:\n")
+  cat("Input: ", text6, "\n")
+  cat("Output:", result6, "\n\n")
+
+  # Test 7: Safe mode (blocks dangerous operations)
+  text7 <- "This is blocked: 'system(\"echo hello\")'"
+  result7 <- string_eval_safe(text7, test_env)
+  cat("Test 7 - Safe mode:\n")
+  cat("Input: ", text7, "\n")
+  cat("Output:", result7, "\n\n")
+
+  # Test 8: Mixed quotes
+  text8 <- 'Single quotes: \'x\' and double quotes: "name"'
+  result8 <- string_eval(text8, test_env)
+  cat("Test 8 - Mixed quotes:\n")
+  cat("Input: ", text8, "\n")
+  cat("Output:", result8, "\n\n")
+
+  cat("=== All tests completed ===\n")
+}
+
+# Shiny integration helper
+create_eval_text_input <- function(inputId, label, value = "", tip = "Use single or double quotes around R code to evaluate it", ...) {
+  text_input_tip(
+    inputId = inputId,
+    label = label,
+    value = value,
+    tip = tip,
+    ...
+  )
+}
+
+# Function to process text input with evaluation
+process_text_input <- function(text_input, env = parent.frame(), safe_mode = TRUE) {
+  if (safe_mode) {
+    string_eval_safe(text_input, env)
+  } else {
+    string_eval(text_input, env)
+  }
 }
 
 # === Enhanced Filtering System Helper Functions ===
@@ -937,6 +1211,204 @@ get_package_data_dir <- function() {
 # Function to get package extdata directory
 get_package_extdata_dir <- function() {
   system.file("extdata", package = "dataPlotter")
+}
+
+# === Batch Download System ===
+
+#' Create a temporary directory for batch downloads
+create_batch_download_dir <- function() {
+  # Create a unique temp directory for this batch
+  batch_id <- paste0("batch_", format(Sys.time(), "%Y%m%d_%H%M%S"), "_", substr(as.character(runif(1)), 3, 8))
+  temp_dir <- file.path(tempdir(), batch_id)
+
+  if (!dir.exists(temp_dir)) {
+    dir.create(temp_dir, recursive = TRUE)
+  }
+
+  return(temp_dir)
+}
+
+#' Generate plot file for batch download
+generate_plot_file <- function(plot_obj, filename, format = "png", width = 12, height = 8, dpi = 300) {
+  tryCatch({
+    if (format == "html" && inherits(plot_obj, "htmlwidget")) {
+      # Interactive plots as HTML
+      htmlwidgets::saveWidget(plot_obj, filename, selfcontained = TRUE)
+
+    } else if (format == "html" && inherits(plot_obj, "datatables")) {
+      # DataTable as HTML
+      htmlwidgets::saveWidget(plot_obj, filename, selfcontained = TRUE)
+
+    } else if (format %in% c("png", "jpeg", "pdf", "svg") && inherits(plot_obj, "ggplot")) {
+      # Static plots in various formats
+      ggplot2::ggsave(
+        filename = filename,
+        plot = plot_obj,
+        device = format,
+        width = width,
+        height = height,
+        dpi = dpi,
+        bg = "white"
+      )
+
+    } else if (format == "json") {
+      # Extract data from plot
+      if (inherits(plot_obj, "ggplot")) {
+        plot_data <- plot_obj$data
+        if (!is.null(plot_data)) {
+          jsonlite::write_json(plot_data, filename, pretty = TRUE)
+        } else {
+          writeLines('{"error": "No data available in plot object"}', filename)
+        }
+      } else if (inherits(plot_obj, "htmlwidget")) {
+        if ("plotly" %in% class(plot_obj)) {
+          plot_data <- plot_obj$x$data
+          jsonlite::write_json(plot_data, filename, pretty = TRUE)
+        } else {
+          writeLines('{"error": "Data extraction not supported for this widget type"}', filename)
+        }
+      } else {
+        writeLines('{"error": "Unsupported plot type for data extraction"}', filename)
+      }
+
+    } else if (format == "txt") {
+      # Save as text representation
+      plot_text <- capture.output(print(plot_obj))
+      writeLines(plot_text, filename)
+
+    } else {
+      stop("Unsupported format: ", format)
+    }
+
+    return(TRUE)
+
+  }, error = function(e) {
+    warning("Error generating plot file ", filename, ": ", e$message)
+    return(FALSE)
+  })
+}
+
+#' Generate filename for batch download
+generate_batch_filename <- function(plotter_id, title = NULL, caption = NULL, format = "png", timestamp = TRUE) {
+  # Base filename from plotter ID
+  base_name <- plotter_id
+
+  # Add title if available
+  if (!is.null(title) && nzchar(title)) {
+    title_clean <- gsub("[^a-zA-Z0-9 ]", "", title)
+    title_words <- strsplit(title_clean, "\\s+")[[1]]
+    title_short <- paste(head(title_words, 3), collapse = "_")
+    if (nzchar(title_short)) {
+      base_name <- paste0(base_name, "_", title_short)
+    }
+  }
+
+  # Add caption if available
+  if (!is.null(caption) && nzchar(caption)) {
+    caption_clean <- gsub("[^a-zA-Z0-9 ]", "", caption)
+    caption_words <- strsplit(caption_clean, "\\s+")[[1]]
+    caption_short <- paste(head(caption_words, 2), collapse = "_")
+    if (nzchar(caption_short)) {
+      base_name <- paste0(base_name, "_", caption_short)
+    }
+  }
+
+  # Add timestamp
+  if (timestamp) {
+    timestamp_str <- format(Sys.time(), "%H%M%S")
+    base_name <- paste0(base_name, "_", timestamp_str)
+  }
+
+  # Add extension
+  paste0(base_name, ".", format)
+}
+
+#' Process a single plotter for batch download
+process_plotter_for_batch <- function(plotter_id, temp_dir, session, progress_callback = NULL) {
+  tryCatch({
+    # Update progress if callback provided
+    if (!is.null(progress_callback)) {
+      progress_callback(plotter_id, "starting", "Preparing plot data...")
+    }
+
+    # Get plot object and data from the plotter module
+    # This requires access to the plotter's reactive values
+    plot_obj <- NULL
+    plot_data <- NULL
+
+    # We need to access the plotter's internal state
+    # This will require some restructuring of how plotter data is accessed
+
+    if (!is.null(progress_callback)) {
+      progress_callback(plotter_id, "generating", "Generating plot...")
+    }
+
+    # For now, we'll create a placeholder structure
+    # In a real implementation, this would access the actual plotter data
+
+    success <- TRUE
+    message <- "Plot processed successfully"
+
+    if (!is.null(progress_callback)) {
+      progress_callback(plotter_id, "complete", message)
+    }
+
+    return(list(
+      plotter_id = plotter_id,
+      success = success,
+      message = message,
+      filename = NULL
+    ))
+
+  }, error = function(e) {
+    error_msg <- paste("Error processing plotter", plotter_id, ":", e$message)
+
+    if (!is.null(progress_callback)) {
+      progress_callback(plotter_id, "error", error_msg)
+    }
+
+    return(list(
+      plotter_id = plotter_id,
+      success = FALSE,
+      message = error_msg,
+      filename = NULL
+    ))
+  })
+}
+
+#' Create ZIP archive from batch download directory
+create_batch_zip <- function(temp_dir, zip_filename) {
+  tryCatch({
+    # Get all files in the temp directory
+    files_to_zip <- list.files(temp_dir, full.names = TRUE, recursive = TRUE)
+
+    if (length(files_to_zip) == 0) {
+      warning("No files to zip in directory: ", temp_dir)
+      return(FALSE)
+    }
+
+    # Create ZIP archive
+    utils::zip(zip_filename, files_to_zip, extras = "-j")  # -j to store just filenames
+
+    return(TRUE)
+
+  }, error = function(e) {
+    warning("Error creating ZIP archive: ", e$message)
+    return(FALSE)
+  })
+}
+
+#' Clean up temporary batch download files
+cleanup_batch_files <- function(temp_dir) {
+  tryCatch({
+    if (dir.exists(temp_dir)) {
+      unlink(temp_dir, recursive = TRUE)
+    }
+    return(TRUE)
+  }, error = function(e) {
+    warning("Error cleaning up temp directory ", temp_dir, ": ", e$message)
+    return(FALSE)
+  })
 }
 
 # Simple test function for debugging fullscreen

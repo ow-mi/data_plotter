@@ -199,10 +199,33 @@ page_navbar(
           position = "left",
           width = 500,
           p(class = "text-muted small", "Configure batch download of all plots"),
+
+          # Batch download controls
+          div(class = "mb-3",
+            h6("Quick Batch Download"),
+            p(class = "text-muted small", "Download all plots as a ZIP archive with current settings"),
+            actionButton(
+              "quick_batch_download",
+              "Download All Plots (ZIP)",
+              icon = icon("file-archive"),
+              class = "btn-primary w-100 mb-2"
+            ),
+            downloadButton("batch_download_output", "Hidden Download", class = "d-none")
+          ),
+
+          hr(),
+
+          # Advanced configuration
+          h6("Advanced Configuration"),
           aceEditor_pre("downloader_input", value = downloader_code_refactored)
         ),
         div(class = "p-3",
           h5("Download Interface"),
+
+          # Progress indicator for batch downloads
+          uiOutput("batch_download_progress"),
+
+          # Existing downloader output
           uiOutput("downloader_output")
         )
       )
@@ -292,20 +315,13 @@ page_navbar(
         # Runs Section
         h6("Batch Runs", class = "text-muted mb-2 mt-2"),
         p(class = "text-muted small mb-2", "Run multiple filter combinations automatically"),
-        
+
         textInput(
-          "automation_include_runs",
-          "Include Files (runs)",
-          placeholder = "run1_files;run2_files;run3_files",
+          "automation_filters",
+          "Filters (runs)",
+          placeholder = "run:1;run:2;series:temp",
           width = "100%"
-        ) |> tooltip("Semicolon-separated list of include filters. Each will be applied sequentially with plot generation and download."),
-        
-        textInput(
-          "automation_exclude_runs", 
-          "Exclude Files (runs)",
-          placeholder = "debug;test;calibration",
-          width = "100%"
-        ) |> tooltip("Semicolon-separated list of exclude filters to apply with each include filter."),
+        ) |> tooltip("Semicolon-separated list of filters. Each will be applied sequentially with plot generation and download."),
         
         actionButton(
           "automation_run_batches",
@@ -595,17 +611,70 @@ page_navbar(
     // Handle automation: batch runs
     Shiny.addCustomMessageHandler('triggerBatchRun', function(data) {
       console.log('Automation: Batch run', data.runNumber, 'phase:', data.phase);
-      
-      if (data.phase === 'generate') {
-        // Trigger generate all plots
-        Shiny.setInputValue('automation_generate_plots', Math.random());
+
+      if (data.phase === 'generate_plots') {
+        // Trigger generate all plots (now called after combiner processing is complete)
+        console.log('Batch run', data.runNumber, '- combiner processing complete, triggering plot generation');
+
+        // Small delay to ensure combiner data has propagated to plotters
+        setTimeout(function() {
+          Shiny.setInputValue('automation_generate_plots', Math.random());
+          console.log('Batch run', data.runNumber, '- plot generation triggered');
+
+          // Schedule download after plot generation
+          setTimeout(function() {
+            console.log('Batch run', data.runNumber, '- scheduling download after plot generation');
+            Shiny.setInputValue('automation_download_plots', Math.random());
+            console.log('Batch run', data.runNumber, '- download triggered');
+
+            // Schedule next batch run after download (no long timeout)
+            setTimeout(function() {
+              console.log('=== SENDING COMPLETION SIGNAL ===');
+              console.log('Batch run', data.runNumber, '- download should be complete, proceeding to next run');
+              console.log('Sending completion signal for run:', data.runNumber);
+
+              // Trigger next run by sending input value that JavaScript will handle
+              var completionData = {
+                completedRun: data.runNumber,
+                timestamp: Date.now()
+              };
+
+              console.log('Sending completion data:', completionData);
+              Shiny.setInputValue('batch_run_complete', completionData);
+
+              console.log('Completion signal sent via setInputValue');
+
+              // Fallback: If input event doesn't work, trigger next run after longer delay
+              setTimeout(function() {
+                console.log('=== FALLBACK: Checking if batch_run_complete event was handled ===');
+                // The input event should have been handled by now, but if not, we can add logic here
+              }, 10000); // 10 second fallback check
+            }, 3000); // 3 seconds for download completion
+
+          }, 6000); // 6 seconds for plot generation
+        }, 1000); // 1 second delay to let reactive updates propagate
+
       } else if (data.phase === 'download') {
-        // Trigger download all plots  
+        // Trigger download all plots
         Shiny.setInputValue('automation_download_plots', Math.random());
         console.log('Batch run', data.runNumber, '- plots generated and downloaded');
       }
     });
-    
+
+    // Handle new batch download system
+    Shiny.addCustomMessageHandler('triggerBatchDownload', function(data) {
+      console.log('New batch download: Triggering ZIP download for', data.plotter_count, 'plotters');
+
+      // Click the hidden download button to start the ZIP download
+      var downloadButton = document.getElementById('batch_download_output');
+      if (downloadButton) {
+        downloadButton.click();
+        console.log('ZIP download triggered');
+      } else {
+        console.error('Batch download button not found');
+      }
+    });
+
     // Handle automation: delayed batch run
     Shiny.addCustomMessageHandler('triggerBatchRunDelayed', function(data) {
       console.log('Automation: Scheduling delayed batch run', data.runNumber, 'phase:', data.phase, 'delay:', data.delay + 'ms');
@@ -621,28 +690,20 @@ page_navbar(
     // Handle automation: update combiner filters
     Shiny.addCustomMessageHandler('updateCombinerFilters', function(data) {
       console.log('Automation: Updating combiner filters for run', data.runNumber);
-      console.log('Include:', data.includeFilter, 'Exclude:', data.excludeFilter);
-      
-      // Find and update the combiner filter inputs
-      var includeInput = document.getElementById('combiner-combiner_filter_in_files');
-      var excludeInput = document.getElementById('combiner-combiner_filter_out_files');
-      
-      if (includeInput) {
-        includeInput.value = data.includeFilter;
-        $(includeInput).trigger('change'); // Trigger Shiny update
-        console.log('Updated include filter to:', data.includeFilter);
+      console.log('Filter:', data.filterString);
+
+      // Find and update the combiner custom filter input (combiner uses single filter input)
+      var customFilterInput = document.getElementById('combiner-custom_filter');
+
+      if (customFilterInput) {
+        // Use the filter string directly without any formatting
+        customFilterInput.value = data.filterString || '';
+        $(customFilterInput).trigger('change'); // Trigger Shiny update
+        console.log('Updated custom filter to:', data.filterString);
       } else {
-        console.error('Include filter input not found: combiner-combiner_filter_in_files');
+        console.error('Custom filter input not found: combiner-custom_filter');
       }
-      
-      if (excludeInput) {
-        excludeInput.value = data.excludeFilter;
-        $(excludeInput).trigger('change'); // Trigger Shiny update
-        console.log('Updated exclude filter to:', data.excludeFilter);
-      } else {
-        console.error('Exclude filter input not found: combiner-combiner_filter_out_files');
-      }
-      
+
       // Apply the filters by clicking the apply button
       setTimeout(function() {
         var applyButton = document.getElementById('combiner-apply_combiner_filters');
@@ -655,72 +716,93 @@ page_navbar(
       }, 200); // Small delay to ensure input values are updated
     });
 
-    // Handle automation: start batch runs with JavaScript scheduling
+    // Handle automation: start batch runs with event-driven scheduling
     Shiny.addCustomMessageHandler('startBatchRuns', function(data) {
       console.log('Automation: Starting batch runs with', data.maxFilters, 'filter combinations');
-      
+
       var currentRun = 0;
-      
+      var batchRunsCompleted = 0;
+
+      // Set up completion handler for input changes
+      console.log('Setting up batch_run_complete input handler...');
+
+      // Listen for changes to the batch_run_complete input
+      $(document).on('shiny:inputchanged', function(event) {
+        // Only log batch_run_complete events to reduce noise
+        if (event.name === 'batch_run_complete') {
+          console.log('=== RECEIVED COMPLETION SIGNAL VIA INPUT ===');
+          console.log('Completed run:', event.value ? event.value.completedRun : 'undefined');
+          console.log('Current batch index before:', currentBatchIndex);
+          console.log('Event value object:', event.value);
+
+          if (event.value && event.value.completedRun) {
+            // Proceed to next batch run (completedRun is the run number, so next is completedRun)
+            currentBatchIndex = event.value.completedRun;
+            console.log('Updated batch index to:', currentBatchIndex);
+            console.log('Calling executeBatchRun with index:', currentBatchIndex);
+
+            try {
+              executeBatchRun(currentBatchIndex);
+              console.log('executeBatchRun called successfully');
+            } catch (error) {
+              console.error('Error calling executeBatchRun:', error);
+            }
+          } else {
+            console.error('Invalid completion signal - missing completedRun');
+          }
+        }
+      });
+
+      console.log('batch_run_complete input handler set up');
+
       function executeBatchRun(runIndex) {
+        console.log('=== EXECUTEBATCHRUN CALLED ===');
+        console.log('runIndex:', runIndex, 'maxFilters:', data.maxFilters);
+
         if (runIndex >= data.maxFilters) {
           // All runs complete - restore original filters
-          setTimeout(function() {
-            var includeInput = document.getElementById('combiner-combiner_filter_in_files');
-            var excludeInput = document.getElementById('combiner-combiner_filter_out_files');
-            
-            if (includeInput) {
-              includeInput.value = data.originalInclude;
-              $(includeInput).trigger('change');
-            }
-            if (excludeInput) {
-              excludeInput.value = data.originalExclude;  
-              $(excludeInput).trigger('change');
-            }
-            
+          console.log('All batch runs completed. Restoring original filters.');
+
+          // Restore original filters
+          var customFilterInput = document.getElementById('combiner-custom_filter');
+          if (customFilterInput) {
+            customFilterInput.value = data.originalCustomFilter || '';
+            $(customFilterInput).trigger('change');
+
             // Apply the restored filters
             setTimeout(function() {
               var applyButton = document.getElementById('combiner-apply_combiner_filters');
               if (applyButton) {
                 applyButton.click();
-                console.log('All batch runs completed. Original filters restored and applied.');
+                console.log('Original filters restored and applied.');
               }
             }, 200);
-          }, 5000);
+          }
+          console.log('All batch runs completed - exiting executeBatchRun');
           return;
         }
-        
-        var includeFilter = data.includeFilters[runIndex];
-        var excludeFilter = data.excludeFilters[runIndex] || '';
+
+        var filterString = data.filterList[runIndex];
         var runNumber = runIndex + 1;
-        
-        console.log('Executing batch run', runNumber, 'Include:', includeFilter, 'Exclude:', excludeFilter);
-        
+
+        console.log('=== STARTING NEW BATCH RUN ===');
+        console.log('runIndex:', runIndex, 'runNumber:', runNumber);
+        console.log('Filter:', filterString);
+
         // Apply filters using updateCombinerFilters message
+        // The system will now wait for combiner processing to complete before proceeding
         Shiny.setInputValue('updateFiltersForBatch', {
-          includeFilter: includeFilter,
-          excludeFilter: excludeFilter,
+          filterString: filterString,
           runNumber: runNumber,
           timestamp: Date.now()
         });
-        
-        // Wait for filters to apply, then generate plots
-        setTimeout(function() {
-          Shiny.setInputValue('automation_generate_plots', Math.random());
-          
-          // Wait for plots to generate, then download
-          setTimeout(function() {
-            Shiny.setInputValue('automation_download_plots', Math.random());
-            console.log('Batch run', runNumber, 'completed');
-            
-            // Schedule next run
-            setTimeout(function() {
-              executeBatchRun(runIndex + 1);
-            }, 3000); // 3 second delay between runs
-            
-          }, 5000); // 5 seconds for plot generation
-        }, 1500); // 1.5 seconds for filter application and processing
+
+        // The next run will be triggered when download completes
       }
-      
+
+      // Track current batch run index
+      var currentBatchIndex = 0;
+
       // Start the first batch run
       executeBatchRun(0);
     });

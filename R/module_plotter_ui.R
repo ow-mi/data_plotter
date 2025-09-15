@@ -275,25 +275,13 @@ ui_plotter <- function(id) {
                     )
                   ),
                   div(class = "col-6",
-                    selectizeInput(
+                    textInput(
                       ns("plot_ylabel"),
                       "Y Label",
-                      choices = list(
-                        "Temperature [°C]",
-                        "Voltage [V]", 
-                        "Current [A]", 
-                        "Power [W]",
-                        "Frequency [Hz]",
-                        "Resistance [Ohm]",
-                        "Pressure [kPa]",
-                        "Humidity [%]",
-                        "Percentage [%]"
-                      ),
-                      width = "100%",
-                      selected = NULL, 
-                      multiple = FALSE,
-                      options = list(create = TRUE)
-                    )
+                      value = "",
+                      placeholder = "Temperature [°C], Voltage [V], etc.",
+                      width = "100%"
+                    ) |> tooltip("Enter Y-axis label. Common units: Temperature [°C], Voltage [V], Current [A], Power [W], Frequency [Hz], Resistance [Ohm], Pressure [kPa], Humidity [%]")
                   )
                 )
               ),
@@ -322,23 +310,23 @@ ui_plotter <- function(id) {
                 ),
                 
                 div(class = "mb-2",
-                  selectInput(
+                  textInput(
                     ns("plot_color"),
                     "Color by",
-                    choices = list("None" = "null"),
-                    selected = "null",
+                    value = "series",
+                    placeholder = "series, temperature, etc.",
                     width = "100%"
-                  ) |> tooltip("Group data by color using a column")
+                  ) |> tooltip("Group data by color using a column name. Leave empty for no grouping.")
                 ),
-                
+
                 div(class = "mb-2",
-                  selectInput(
+                  textInput(
                     ns("plot_linetype"),
                     "Line Type by",
-                    choices = list("None" = "null"),
-                    selected = "null",
+                    value = "",
+                    placeholder = "series, temperature, etc.",
                     width = "100%"
-                  ) |> tooltip("Group data by line type using a column")
+                  ) |> tooltip("Group data by line type using a column name. Leave empty for no grouping.")
                 )
               ),
             

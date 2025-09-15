@@ -4,6 +4,9 @@ server_data_combiner <- function(id, list_of_importer_df_reactives, main_session
     # Reactive values for processed data
     processed_data <- reactiveVal(NULL)
     processing_status <- reactiveVal("No processing applied")
+
+    # Completion signal for batch operations
+    processing_complete <- reactiveVal(TRUE) # Start as TRUE for initial state
     
     # Helper function to create processing environment
     create_processing_environment <- function(raw_data, input_obj, main_session_input) {
@@ -225,34 +228,40 @@ server_data_combiner <- function(id, list_of_importer_df_reactives, main_session
     
     # Process data when "Apply Filters" button is pressed
     observeEvent(input$apply_combiner_filters, {
+      # Signal that processing has started
+      processing_complete(FALSE)
+
       # Get the raw combined data
       raw_data <- combined_data_from_all_importers()
-      
+
       # Get the processing code from ace editor
       processing_code <- input$r_code_combined_data_processing
-      
+
       # Get the custom filter for batch processing
       custom_filter <- input$custom_filter
-      
+
       # Debug information
       if (is.null(raw_data)) {
         showNotification("Debug: raw_data is NULL. Check if importers have processed data.", type = "warning", duration = 10)
         processing_status("No data available - raw_data is NULL")
+        processing_complete(TRUE) # Signal completion even on error
         return()
       } else if (nrow(raw_data) == 0) {
         showNotification(paste("Debug: raw_data exists but has 0 rows. Columns:", paste(names(raw_data), collapse = ", ")), type = "warning", duration = 10)
         processing_status("No data available - raw_data has 0 rows")
+        processing_complete(TRUE) # Signal completion even on error
         return()
       } else {
         showNotification(paste("Debug: Found", nrow(raw_data), "rows,", ncol(raw_data), "columns"), type = "message", duration = 5)
       }
-      
+
       if (is.null(processing_code) || trimws(processing_code) == "") {
         showNotification("No processing code provided", type = "warning")
         processing_status("No code provided")
+        processing_complete(TRUE) # Signal completion even on error
         return()
       }
-      
+
       # Show processing notification
       showNotification("Processing data with ace editor code...", type = "message", duration = 3)
       processing_status("Processing...")
@@ -265,55 +274,64 @@ server_data_combiner <- function(id, list_of_importer_df_reactives, main_session
           # Single run - process normally
           env <- create_processing_environment(raw_data, input, main_session_input)
           processed_df <- eval(parse(text = processing_code), envir = env)
-          
+
           if (!is.null(processed_df) && (is.data.frame(processed_df) || is.data.table(processed_df))) {
             setDT(processed_df)
+            cat("DEBUG: Combiner processed data with", nrow(processed_df), "rows\n")
+            if ("dut" %in% names(processed_df)) {
+              cat("DEBUG: Processed data unique DUT values:", paste(unique(processed_df$dut)[1:min(5, length(unique(processed_df$dut)))], collapse = ", "), "\n")
+            }
             processed_data(processed_df)
             processing_status(paste("Processed successfully -", format(nrow(processed_df), big.mark = ","), "rows"))
             showNotification(paste("Processing complete:", format(nrow(processed_df), big.mark = ","), "rows"), type = "message")
+            processing_complete(TRUE) # Signal completion
           } else {
             warning("Processing code did not return a valid data frame")
             processed_data(raw_data)
             processing_status("Code returned invalid result - using raw data")
             showNotification("Processing code did not return valid data. Using raw data.", type = "warning")
+            processing_complete(TRUE) # Signal completion
           }
         } else {
           # Multiple runs - batch processing
           batch_results <- list()
-          
+
           for (i in seq_along(filter_runs)) {
             # Create modified input for this run
             modified_input <- as.list(input)
             modified_input$custom_filter <- filter_runs[[i]]
-            
+
             env <- create_processing_environment(raw_data, modified_input, main_session_input)
             run_result <- eval(parse(text = processing_code), envir = env)
-            
+
             if (!is.null(run_result) && (is.data.frame(run_result) || is.data.table(run_result))) {
               setDT(run_result)
               run_result[, batch_run := i]  # Add batch run identifier
               batch_results[[i]] <- run_result
             }
           }
-          
+
           # Combine all batch results
           if (length(batch_results) > 0) {
             combined_batch_df <- rbindlist(batch_results, use.names = TRUE, fill = TRUE)
             processed_data(combined_batch_df)
             processing_status(paste("Batch processed successfully -", length(filter_runs), "runs,", format(nrow(combined_batch_df), big.mark = ","), "total rows"))
             showNotification(paste("Batch processing complete:", length(filter_runs), "runs,", format(nrow(combined_batch_df), big.mark = ","), "rows"), type = "message")
+            processing_complete(TRUE) # Signal completion
           } else {
             processed_data(raw_data)
             processing_status("Batch processing failed - using raw data")
             showNotification("Batch processing failed. Using raw data.", type = "warning")
+            processing_complete(TRUE) # Signal completion
           }
         }
-        
+
       }, error = function(e) {
         warning("Error in processing code: ", e$message)
         processed_data(raw_data)
         processing_status(paste("Error:", e$message))
         showNotification(paste("Processing error:", e$message), type = "error")
+        processing_complete(TRUE) # Signal completion even on error
       })
     })
     
@@ -349,9 +367,12 @@ server_data_combiner <- function(id, list_of_importer_df_reactives, main_session
     current_display_data <- reactive({
       processed <- processed_data()
       if (!is.null(processed)) {
+        cat("DEBUG: Returning processed data with", nrow(processed), "rows\n")
         return(processed)
       } else {
-        return(combined_data_from_all_importers())
+        raw_data <- combined_data_from_all_importers()
+        cat("DEBUG: Returning raw data with", if(!is.null(raw_data)) nrow(raw_data) else 0, "rows\n")
+        return(raw_data)
       }
     })
     
@@ -428,7 +449,8 @@ server_data_combiner <- function(id, list_of_importer_df_reactives, main_session
     )
 
     list(
-      df = current_display_data
+      df = current_display_data,
+      processing_complete = processing_complete
     )
   })
 }

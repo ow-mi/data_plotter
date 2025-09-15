@@ -160,30 +160,18 @@ ui_data_importer <- function(id) {
           # Filename Column Extraction (compact)
           div(class = "mb-2",
             h6("Extract from Filename", class = "text-muted mb-1 small"),
-            div(class = "row g-1",
-              div(class = "col-6",
-                textInput(
-                  ns("extract_column_name"),
-                  NULL,
-                  placeholder = "Column name",
-                  width = "100%"
-                ) |> tooltip("Name for the new column (e.g., 'box', 'charge_type')")
-              ),
-              div(class = "col-6",
-                textInput(
-                  ns("extract_pattern"),
-                  NULL,
-                  placeholder = "Regex pattern",
-                  width = "100%"
-                ) |> tooltip("Regex pattern to extract value from filename. Use parentheses to capture specific parts: 'Box(\\d+)' extracts '21' from 'Box21', while 'Box\\d+' extracts 'Box21'")
-              )
-            ),
+            textInput(
+              ns("extract_columns_pattern"),
+              NULL,
+              placeholder = "col: regex | col: regex",
+              width = "100%"
+            ) |> tooltip("Format: column_name: regex_pattern | column_name: regex_pattern. Use parentheses in regex to capture specific parts: 'box: Box(\\d+)' extracts '21' from 'Box21_file.csv'"),
             actionButton(
-              ns("add_extract_column"),
-              "Add Column",
+              ns("add_extract_columns"),
+              "Update Columns",
               icon = icon("plus"),
               class = "btn-outline-primary btn-sm w-100 mt-1"
-            ) |> tooltip("Add column based on filename extraction"),
+            ) |> tooltip("Update columns based on filename extraction patterns"),
             # Display current extractions
             div(
               id = ns("current_extractions"),
