@@ -79,11 +79,11 @@ export(create_batch_filters)
 export(update_combined_data_filter)
 export(automation_filter)
 
-# Cheatsheet functions
-export(ui_cheatsheet)
-export(srv_cheatsheet)
+# UI functions
+export(ui_cheatsheets)
 
 # Server functions
+export(srv_cheatsheets)
 export(server_plotter)
 export(ui_plotter)
 import(bslib)
