@@ -45,8 +45,39 @@ export(format_eval_result)
 
 # ACE Editor functions
 export(aceEditor_pre)
+export(aceEditor_pre_)
 export(aceEditor_simple_fullscreen)
 export(aceEditor_test_fullscreen)
+export(ace_server_functions)
+export(generate_function_lists)
+
+# Template loading functions
+export(load_templates)
+export(load_templates_ordered)
+export(load_specific_templates)
+
+# Code sharing functions
+export(get_plotter_code)
+export(get_importer_code)
+
+# Batch download functions
+export(create_batch_download_dir)
+export(generate_plot_file)
+export(generate_batch_filename)
+export(process_plotter_for_batch)
+export(create_batch_zip)
+export(cleanup_batch_files)
+
+# Test functions
+export(test_string_eval)
+
+# Filter automation functions
+export(create_filter_string)
+export(create_dynamic_filter)
+export(create_custom_filter)
+export(create_batch_filters)
+export(update_combined_data_filter)
+export(automation_filter)
 
 # Server functions
 export(server_plotter)
