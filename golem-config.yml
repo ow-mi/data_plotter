@@ -1,0 +1,16 @@
+default:
+  golem_name: dataPlotter
+  golem_version: "1.1.0"
+  authors:
+  - Author Name
+  - author@example.com
+  golem_desc:
+    Title: Data Plotter Shiny Application
+    Description: A powerful, modular Shiny application for data import, processing,
+      and visualization with dynamic plotting capabilities. Supports multiple file
+      formats, advanced data processing, and both static and interactive visualizations.
+    License: MIT + file LICENSE
+    Encoding: UTF-8
+    LazyData: true
+  golem_wd: /workspace
+  app_prod: yes

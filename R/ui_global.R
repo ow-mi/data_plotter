@@ -1,3 +1,9 @@
+#' Global UI Function
+#'
+#' @import shiny
+#' @import bslib
+#' @import shinyTime
+#' @noRd
 ui_global <- function() {
 
 
