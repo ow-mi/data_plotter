@@ -64,6 +64,8 @@ dev/
 - **Interactive Visualizations**: Both static and interactive plots
 - **Template System**: Save and load configurations as JSON templates
 - **Batch Processing**: Generate multiple plots and outputs in batches
+- **Cheatsheet Helper**: Quick access to R library documentation and cheatsheets
+- **Advanced Automation**: Batch filter processing and automated workflows
 
 ## Functions
 
@@ -85,6 +87,11 @@ dev/
 - `text_input_tip()`: Text input with tooltips
 - `numeric_input_tip()`: Numeric input with tooltips
 - `aceEditor_pre()`: Enhanced ACE code editor
+
+### Cheatsheet Helpers
+
+- `ui_cheatsheet()`: Cheatsheet helper page with links to R library documentation
+- `srv_cheatsheet()`: Server module for cheatsheet functionality
 
 ## Configuration
 
@@ -109,6 +116,24 @@ Key dependencies include:
 - **DT**: Data tables
 - **readxl**: Excel file reading
 - **jsonlite**: JSON handling
+
+## Cheatsheet Helper
+
+The application includes a comprehensive cheatsheet helper page that provides quick access to documentation for the main R libraries used in the tool:
+
+### Available Cheatsheets
+
+- **Core Libraries**: Shiny, ggplot2, plotly, dplyr, stringr, data.table
+- **Data Import/Export**: readxl, fst, data import tools
+- **tidyverse**: purrr, tidyr, and other tidyverse packages
+- **Statistics**: modelr, broom, correlation tools
+- **Base R**: Base R functions, factors, dates & times
+
+### Custom Tool References
+
+- **Built-in Function Reference**: Tips for using the tool's unique features
+- **Keyboard Shortcuts**: Quick reference for editor and navigation shortcuts
+- **RStudio IDE Tips**: Helpful shortcuts and best practices
 
 ## Development
 

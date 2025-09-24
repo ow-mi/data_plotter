@@ -79,6 +79,10 @@ export(create_batch_filters)
 export(update_combined_data_filter)
 export(automation_filter)
 
+# Cheatsheet functions
+export(ui_cheatsheet)
+export(srv_cheatsheet)
+
 # Server functions
 export(server_plotter)
 export(ui_plotter)

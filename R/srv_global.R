@@ -111,4 +111,7 @@ server_global <- function(input, output, session) {
   # Call module server functions here
   # Example: mod_importer_server("data_import_module_1", data = reactive_data)
   # These will be called from the UI components
+
+  # Cheatsheet helper module
+  srv_cheatsheet("cheatsheet")
 }

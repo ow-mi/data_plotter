@@ -339,7 +339,14 @@ page_navbar(
       )
     )
   ),
-  
+
+  # Cheatsheet Helper
+  nav_panel(
+    title = "Cheatsheets",
+    icon = icon("book"),
+    ui_cheatsheet()
+  ),
+
   # Theme Toggle
   nav_item(
     input_dark_mode(mode = "light") |> 
