@@ -1,3 +1,9 @@
+#' Global UI Function
+#'
+#' @import shiny
+#' @import bslib
+#' @import shinyTime
+#' @noRd
 ui_global <- function() {
 
 
@@ -333,11 +339,31 @@ page_navbar(
       )
     )
   ),
-  
+
+  # Help & Cheatsheets Tab
+  nav_panel(
+    title = "Help & Cheatsheets",
+    icon = icon("book"),
+    ui_cheatsheets("cheatsheets")
+  ),
+
   # Theme Toggle
   nav_item(
-    input_dark_mode(mode = "light") |> 
+    input_dark_mode(mode = "light") |>
       tooltip("Toggle light/dark theme")
+  ),
+
+  # Quick Help Access Button
+  nav_item(
+    div(class = "px-3 py-2",
+      actionButton(
+        "quick_help",
+        label = NULL,
+        icon = icon("question-circle"),
+        class = "btn-info",
+        onclick = "document.getElementById('mainmenu').querySelector('a[data-bs-target*=\"Help\"]').click()"
+      ) |> tooltip("Open Help & Cheatsheets")
+    )
   ),
   
   # Add Data Import
@@ -1458,6 +1484,25 @@ page_navbar(
       transform: translateY(-2px);
       box-shadow: 0 6px 12px rgba(0,0,0,0.3);
     }
+
+    // Keyboard shortcut for Help & Cheatsheets (F1 or Ctrl+?)
+    $(document).keydown(function(e) {
+      // F1 key or Ctrl+? or Ctrl+/ (help shortcut)
+      if (e.keyCode === 112 || (e.ctrlKey && (e.keyCode === 191 || e.keyCode === 111))) {
+        e.preventDefault();
+        // Find and click the Help & Cheatsheets tab
+        var helpTab = document.querySelector('a[data-bs-target*="Help"]');
+        if (helpTab) {
+          helpTab.click();
+        } else {
+          // Alternative: click the quick help button
+          var quickHelpBtn = document.getElementById('quick_help');
+          if (quickHelpBtn) {
+            quickHelpBtn.click();
+          }
+        }
+      }
+    });
   "))
 )
 
